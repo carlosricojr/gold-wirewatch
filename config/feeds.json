@@ -1,0 +1,9 @@
+{
+  "feeds": [
+    {"name": "Federal Reserve Press", "url": "https://www.federalreserve.gov/feeds/press_all.xml", "kind": "rss", "enabled": true},
+    {"name": "US Treasury Press", "url": "https://home.treasury.gov/news/press-releases/feed", "kind": "rss", "enabled": true},
+    {"name": "BIS News", "url": "https://www.bis.org/rss/press.xml", "kind": "rss", "enabled": true},
+    {"name": "PBoC News", "url": "http://www.pbc.gov.cn/goutongjiaoliu/113456/113469/index.html", "kind": "rss", "enabled": false},
+    {"name": "OFAC Sanctions", "url": "https://ofac.treasury.gov/recent-actions?format=rss", "kind": "rss", "enabled": true}
+  ]
+}
