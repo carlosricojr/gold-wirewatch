@@ -1,20 +1,46 @@
 feeds:
+  # Policy / central-bank anchor
   - name: Federal Reserve Press
     url: https://www.federalreserve.gov/feeds/press_all.xml
     kind: rss
     enabled: true
-  - name: US Treasury Press
+
+  # Geopolitical + macro-sensitive public feeds (empirically parseable)
+  - name: BBC World
+    url: https://feeds.bbci.co.uk/news/world/rss.xml
+    kind: rss
+    enabled: true
+  - name: BBC Business
+    url: https://feeds.bbci.co.uk/news/business/rss.xml
+    kind: rss
+    enabled: true
+  - name: Al Jazeera All
+    url: https://www.aljazeera.com/xml/rss/all.xml
+    kind: rss
+    enabled: true
+  - name: NYTimes World
+    url: https://rss.nytimes.com/services/xml/rss/nyt/World.xml
+    kind: rss
+    enabled: true
+  - name: CNBC World (disabled-403)
+    url: https://www.cnbc.com/id/100727362/device/rss/rss.html
+    kind: rss
+    enabled: false
+
+  # Known unreliable in this environment (timeouts/404); keep disabled until replaced.
+  - name: US Treasury Press (disabled-timeout)
     url: https://home.treasury.gov/news/press-releases/feed
     kind: rss
-    enabled: true
-  - name: BIS News
+    enabled: false
+  - name: BIS News (disabled-404)
     url: https://www.bis.org/rss/press.xml
     kind: rss
-    enabled: true
-  - name: OFAC Sanctions
+    enabled: false
+  - name: OFAC Sanctions (disabled-timeout)
     url: https://ofac.treasury.gov/recent-actions?format=rss
     kind: rss
-    enabled: true
+    enabled: false
+
   # FREE baseline above. Paid toggles below can be enabled when legally available.
   - name: IBKR Reuters (paid toggle)
     url: https://example.invalid/ibkr-reuters-placeholder

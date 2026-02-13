@@ -33,7 +33,7 @@ keywords:
     relevance: 0.20
     severity: 0.30
 
-  # geopolitics / china
+  # geopolitics / shipping / supply risk
   - term: sanctions
     relevance: 0.25
     severity: 0.60
@@ -43,6 +43,30 @@ keywords:
   - term: geopolit
     relevance: 0.35
     severity: 0.80
+  - term: iran
+    relevance: 0.30
+    severity: 0.70
+  - term: strait of hormuz
+    relevance: 0.40
+    severity: 0.85
+  - term: red sea
+    relevance: 0.35
+    severity: 0.75
+  - term: aircraft carrier
+    relevance: 0.30
+    severity: 0.70
+  - term: missile
+    relevance: 0.25
+    severity: 0.70
+  - term: shipping
+    relevance: 0.25
+    severity: 0.55
+  - term: brent
+    relevance: 0.25
+    severity: 0.40
+  - term: wti
+    relevance: 0.25
+    severity: 0.40
   - term: china
     relevance: 0.25
     severity: 0.35

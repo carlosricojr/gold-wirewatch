@@ -91,6 +91,18 @@ class Storage:
                 (kind, payload, datetime.now(UTC).isoformat()),
             )
 
+    def has_recent_event(self, kind: str, within_seconds: int) -> bool:
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT created_at FROM events WHERE kind = ? ORDER BY id DESC LIMIT 1",
+                (kind,),
+            ).fetchone()
+        if row is None:
+            return False
+        created_at = datetime.fromisoformat(str(row[0]))
+        age = datetime.now(UTC) - created_at.astimezone(UTC)
+        return age.total_seconds() <= within_seconds
+
     def latest_items(self, minutes: int = 120) -> list[sqlite3.Row]:
         with self._conn() as conn:
             return list(

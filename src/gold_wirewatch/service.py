@@ -15,7 +15,7 @@ from .feeds import poll_feed, stable_item_key
 from .models import FeedItem
 from .openclaw_client import OpenClawClient
 from .scheduler import current_poll_interval
-from .scoring import KeywordMap, score_item
+from .scoring import KeywordMap, geo_watch_reasons, score_item
 from .storage import Storage
 
 
@@ -24,6 +24,9 @@ class MarketWebhookPayload(BaseModel):
     previous: float | None = None
     current: float | None = None
     window_seconds: int = 120
+
+
+GEO_WATCH_COOLDOWN_SECONDS = 600
 
 
 class WireWatchService:
@@ -49,10 +52,18 @@ class WireWatchService:
                 continue
             score = score_item(item, self.keywords)
             self.storage.save_item(item_key, item, score)
-            if (
+            meets_main_gate = (
                 score.relevance_score >= self.settings.relevance_threshold
                 and score.severity_score >= self.settings.severity_threshold
-            ):
+            )
+            geo_reasons = geo_watch_reasons(item)
+            geo_gate = bool(geo_reasons)
+            should_fire = meets_main_gate or geo_gate
+            if geo_gate and self.storage.has_recent_event("geo_watch", GEO_WATCH_COOLDOWN_SECONDS):
+                should_fire = False
+
+            if should_fire:
+                trigger_path = "main_gate" if meets_main_gate else "geo_watch"
                 alert_text = format_news_alert(item, score, self.settings.timezone)
                 self.oc.trigger(
                     text=alert_text,
@@ -62,8 +73,14 @@ class WireWatchService:
                         "relevanceScore": score.relevance_score,
                         "severityScore": score.severity_score,
                         "reasons": score.reasons,
+                        "triggerPath": trigger_path,
                     },
                 )
+                if trigger_path == "geo_watch":
+                    self.storage.save_event(
+                        "geo_watch",
+                        json.dumps({"source": item.source, "title": item.title, "url": item.url}),
+                    )
                 fired += 1
         return fired
 
