@@ -137,13 +137,16 @@ def create_webhook_app(service: WireWatchService) -> FastAPI:
 
     @app.post("/webhook/market-move")
     def market_move(payload: MarketWebhookPayload) -> dict[str, object]:
-        triggered = service.handle_market_move(
-            symbol=payload.symbol,
-            previous=payload.previous,
-            current=payload.current,
-            window=payload.window_seconds,
-        )
-        return {"ok": True, "triggered": triggered}
+        try:
+            triggered = service.handle_market_move(
+                symbol=payload.symbol,
+                previous=payload.previous,
+                current=payload.current,
+                window=payload.window_seconds,
+            )
+            return {"ok": True, "triggered": triggered}
+        except Exception as exc:
+            return {"ok": False, "triggered": False, "error": str(exc)}
 
     return app
 

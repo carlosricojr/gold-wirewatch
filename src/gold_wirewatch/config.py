@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     relevance_threshold: float = 0.55
     severity_threshold: float = 0.45
 
-    openclaw_base_url: str = "http://127.0.0.1:7331"
+    openclaw_base_url: str = "http://127.0.0.1:18789"
     openclaw_agent_id: str = "quant"
     openclaw_token: str = ""
     openclaw_timeout_seconds: float = 5.0

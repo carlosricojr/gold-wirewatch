@@ -35,8 +35,9 @@ class OpenClawClient:
         payload: dict[str, object] = {
             "agentId": self.settings.openclaw_agent_id,
             "wakeMode": "now",
-            "text": text,
+            "message": text,
         }
         if context:
-            payload["context"] = context
+            text_with_context = f"{text}\n\nContext:\n{json.dumps(context, ensure_ascii=False)}"
+            payload["message"] = text_with_context
         self._post_with_retry(payload)
