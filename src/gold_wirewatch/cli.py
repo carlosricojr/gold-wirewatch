@@ -4,7 +4,8 @@ from datetime import UTC, datetime
 
 import typer
 
-from .config import load_feeds, load_settings
+from .config import load_feeds, load_settings, load_thresholds
+from .scoring import load_keywords
 from .service import WireWatchService, start_service_with_webhook
 from .storage import Storage
 
@@ -13,9 +14,16 @@ app = typer.Typer(help="Gold wirewatch CLI")
 
 def build_service() -> WireWatchService:
     settings = load_settings()
+    thresholds = load_thresholds(settings.thresholds_path)
+    settings.relevance_threshold = thresholds.relevance_threshold
+    settings.severity_threshold = thresholds.severity_threshold
+    settings.market_move_delta_usd = thresholds.market_move_delta_usd
+    settings.market_move_window_seconds = thresholds.market_move_window_seconds
+
     feeds = load_feeds(settings.feeds_path)
+    keywords = load_keywords(settings.keywords_path)
     storage = Storage(settings.db_path)
-    return WireWatchService(settings, feeds, storage)
+    return WireWatchService(settings, feeds, storage, keywords)
 
 
 @app.command("run")

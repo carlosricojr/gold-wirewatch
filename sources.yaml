@@ -1,0 +1,26 @@
+feeds:
+  - name: Federal Reserve Press
+    url: https://www.federalreserve.gov/feeds/press_all.xml
+    kind: rss
+    enabled: true
+  - name: US Treasury Press
+    url: https://home.treasury.gov/news/press-releases/feed
+    kind: rss
+    enabled: true
+  - name: BIS News
+    url: https://www.bis.org/rss/press.xml
+    kind: rss
+    enabled: true
+  - name: OFAC Sanctions
+    url: https://ofac.treasury.gov/recent-actions?format=rss
+    kind: rss
+    enabled: true
+  # FREE baseline above. Paid toggles below can be enabled when legally available.
+  - name: IBKR Reuters (paid toggle)
+    url: https://example.invalid/ibkr-reuters-placeholder
+    kind: rss
+    enabled: false
+  - name: FinancialJuice PRO (paid toggle)
+    url: https://example.invalid/fj-pro-placeholder
+    kind: json
+    enabled: false

@@ -1,0 +1,4 @@
+relevance_threshold: 0.55
+severity_threshold: 0.45
+market_move_delta_usd: 8.0
+market_move_window_seconds: 120

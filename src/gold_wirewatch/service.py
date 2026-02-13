@@ -9,12 +9,13 @@ import httpx
 from fastapi import FastAPI
 from pydantic import BaseModel
 
+from .alerts import format_market_move_alert, format_news_alert
 from .config import FeedConfig, Settings
 from .feeds import poll_feed, stable_item_key
 from .models import FeedItem
 from .openclaw_client import OpenClawClient
 from .scheduler import current_poll_interval
-from .scoring import score_item
+from .scoring import KeywordMap, score_item
 from .storage import Storage
 
 
@@ -26,10 +27,17 @@ class MarketWebhookPayload(BaseModel):
 
 
 class WireWatchService:
-    def __init__(self, settings: Settings, feeds: list[FeedConfig], storage: Storage) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        feeds: list[FeedConfig],
+        storage: Storage,
+        keywords: KeywordMap,
+    ) -> None:
         self.settings = settings
         self.feeds = feeds
         self.storage = storage
+        self.keywords = keywords
         self.oc = OpenClawClient(settings)
         self.enabled = True
 
@@ -39,14 +47,15 @@ class WireWatchService:
             item_key = stable_item_key(item)
             if self.storage.is_seen(item_key):
                 continue
-            score = score_item(item)
+            score = score_item(item, self.keywords)
             self.storage.save_item(item_key, item, score)
             if (
                 score.relevance_score >= self.settings.relevance_threshold
                 and score.severity_score >= self.settings.severity_threshold
             ):
+                alert_text = format_news_alert(item, score, self.settings.timezone)
                 self.oc.trigger(
-                    text=f"[wire] {item.title}",
+                    text=alert_text,
                     context={
                         "source": item.source,
                         "url": item.url,
@@ -108,7 +117,7 @@ class WireWatchService:
         }
         self.storage.save_event("market_move", json.dumps(payload))
         self.oc.trigger(
-            text=f"[market-move] {symbol} moved ${delta:.2f} in {window}s",
+            text=format_market_move_alert(symbol, delta, window, self.settings.timezone),
             context={
                 "symbol": symbol,
                 "delta": delta,

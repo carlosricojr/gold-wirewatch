@@ -2,6 +2,8 @@ from gold_wirewatch.config import FeedConfig, Settings
 from gold_wirewatch.service import WireWatchService
 from gold_wirewatch.storage import Storage
 
+KEYWORDS = {"fed": (0.35, 0.5)}
+
 
 def _svc(tmp_path, feeds: list[FeedConfig]) -> WireWatchService:
     settings = Settings(
@@ -9,7 +11,7 @@ def _svc(tmp_path, feeds: list[FeedConfig]) -> WireWatchService:
         market_move_delta_usd=8.0,
         market_move_window_seconds=120,
     )
-    return WireWatchService(settings, feeds, Storage(str(tmp_path / "x.db")))
+    return WireWatchService(settings, feeds, Storage(str(tmp_path / "x.db")), KEYWORDS)
 
 
 def test_market_move_trigger(tmp_path) -> None:

@@ -8,10 +8,12 @@ from gold_wirewatch.models import FeedItem
 from gold_wirewatch.service import WireWatchService
 from gold_wirewatch.storage import Storage
 
+KEYWORDS = {"fed": (0.35, 0.5), "treasury": (0.3, 0.3), "risk-off": (0.25, 0.45)}
+
 
 def test_process_items_triggers_and_dedupes(tmp_path) -> None:
     settings = Settings(openclaw_token="tok", relevance_threshold=0.1, severity_threshold=0.1)
-    svc = WireWatchService(settings, [], Storage(str(tmp_path / "a.db")))
+    svc = WireWatchService(settings, [], Storage(str(tmp_path / "a.db")), KEYWORDS)
 
     fired: list[str] = []
     svc.oc.trigger = lambda text, context=None: fired.append(text)  # type: ignore[method-assign]
@@ -33,7 +35,7 @@ def test_process_items_triggers_and_dedupes(tmp_path) -> None:
 def test_poll_once_handles_feed_errors(tmp_path, monkeypatch) -> None:
     settings = Settings(openclaw_token="tok")
     feeds = [FeedConfig("a", "u", "rss")]
-    svc = WireWatchService(settings, feeds, Storage(str(tmp_path / "b.db")))
+    svc = WireWatchService(settings, feeds, Storage(str(tmp_path / "b.db")), KEYWORDS)
 
     def boom(client, feed, cfg):
         _ = (client, feed, cfg)

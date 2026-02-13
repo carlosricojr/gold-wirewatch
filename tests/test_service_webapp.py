@@ -7,10 +7,17 @@ from gold_wirewatch.models import FeedItem
 from gold_wirewatch.service import WireWatchService, create_webhook_app
 from gold_wirewatch.storage import Storage
 
+KEYWORDS = {"fed": (0.35, 0.5), "treasury": (0.3, 0.3), "risk-off": (0.2, 0.2)}
+
 
 def test_poll_once_success_path(tmp_path, monkeypatch) -> None:
     settings = Settings(openclaw_token="tok", relevance_threshold=0.1, severity_threshold=0.1)
-    svc = WireWatchService(settings, [FeedConfig("a", "u", "rss")], Storage(str(tmp_path / "d.db")))
+    svc = WireWatchService(
+        settings,
+        [FeedConfig("a", "u", "rss")],
+        Storage(str(tmp_path / "d.db")),
+        KEYWORDS,
+    )
 
     item = FeedItem("a", "Gold fed", "treasury risk-off", "u", "g", None, datetime.now(UTC))
     monkeypatch.setattr("gold_wirewatch.service.poll_feed", lambda client, feed, cfg: [item])
@@ -23,7 +30,7 @@ def test_poll_once_success_path(tmp_path, monkeypatch) -> None:
 
 def test_webhook_app_health_and_post(tmp_path) -> None:
     settings = Settings(openclaw_token="tok")
-    svc = WireWatchService(settings, [], Storage(str(tmp_path / "e.db")))
+    svc = WireWatchService(settings, [], Storage(str(tmp_path / "e.db")), KEYWORDS)
     svc.oc.trigger = lambda text, context=None: None  # type: ignore[method-assign]
 
     app = create_webhook_app(svc)

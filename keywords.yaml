@@ -1,0 +1,48 @@
+keywords:
+  # rates / real yields / central banks
+  - term: real yield
+    relevance: 0.35
+    severity: 0.40
+  - term: treasury
+    relevance: 0.30
+    severity: 0.30
+  - term: fed
+    relevance: 0.35
+    severity: 0.50
+  - term: ecb
+    relevance: 0.20
+    severity: 0.25
+  - term: boj
+    relevance: 0.20
+    severity: 0.20
+  - term: pboc
+    relevance: 0.25
+    severity: 0.30
+
+  # usd / risk
+  - term: usd
+    relevance: 0.30
+    severity: 0.25
+  - term: dollar
+    relevance: 0.30
+    severity: 0.25
+  - term: risk-off
+    relevance: 0.25
+    severity: 0.45
+  - term: volatility
+    relevance: 0.20
+    severity: 0.30
+
+  # geopolitics / china
+  - term: sanctions
+    relevance: 0.25
+    severity: 0.60
+  - term: war
+    relevance: 0.25
+    severity: 0.80
+  - term: geopolit
+    relevance: 0.35
+    severity: 0.80
+  - term: china
+    relevance: 0.25
+    severity: 0.35

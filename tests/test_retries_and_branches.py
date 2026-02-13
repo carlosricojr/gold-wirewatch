@@ -60,7 +60,7 @@ def test_openclaw_retry_then_success(monkeypatch) -> None:
 
 def test_score_no_strong_driver() -> None:
     item = FeedItem("s", "hello", "world", "u", "g", None, datetime.now(UTC))
-    out = score_item(item)
+    out = score_item(item, {"fed": (0.3, 0.3)})
     assert out.reasons == ["no-strong-driver"]
 
 

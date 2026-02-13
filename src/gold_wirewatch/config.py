@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from pathlib import Path
 
+import yaml
 from dotenv import load_dotenv
+from pydantic import BaseModel
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -14,7 +15,9 @@ class Settings(BaseSettings):
     timezone: str = "America/New_York"
     db_path: str = "./data/wirewatch.db"
     state_path: str = "./data/state.json"
-    feeds_path: str = "./config/feeds.json"
+    feeds_path: str = "./sources.yaml"
+    keywords_path: str = "./keywords.yaml"
+    thresholds_path: str = "./thresholds.yaml"
 
     poll_interval_active_seconds: int = 20
     poll_interval_idle_seconds: int = 90
@@ -37,6 +40,9 @@ class Settings(BaseSettings):
     market_move_delta_usd: float = 8.0
     market_move_window_seconds: int = 120
 
+    enable_ibkr_reuters: bool = False
+    enable_financialjuice_pro: bool = False
+
     retry_max_attempts: int = 3
     retry_backoff_seconds: float = 0.5
 
@@ -49,11 +55,23 @@ class FeedConfig:
     enabled: bool = True
 
 
+class Thresholds(BaseModel):
+    relevance_threshold: float
+    severity_threshold: float
+    market_move_delta_usd: float
+    market_move_window_seconds: int
+
+
 def load_settings() -> Settings:
     load_dotenv(override=False)
     return Settings()
 
 
 def load_feeds(path: str) -> list[FeedConfig]:
-    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    data = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
     return [FeedConfig(**x) for x in data["feeds"] if x.get("enabled", True)]
+
+
+def load_thresholds(path: str) -> Thresholds:
+    data = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
+    return Thresholds(**data)

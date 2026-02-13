@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 
 import typer
 
-from gold_wirewatch.cli import build_service
+from wirewatch.cli import build_service
 
 app = typer.Typer()
 
