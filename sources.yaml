@@ -22,6 +22,14 @@ feeds:
     url: https://rss.nytimes.com/services/xml/rss/nyt/World.xml
     kind: rss
     enabled: true
+  - name: NYTimes Business
+    url: https://rss.nytimes.com/services/xml/rss/nyt/Business.xml
+    kind: rss
+    enabled: true
+  - name: SCOTUSblog (Court)
+    url: https://www.scotusblog.com/feed/
+    kind: rss
+    enabled: true
   - name: CNBC World (disabled-403)
     url: https://www.cnbc.com/id/100727362/device/rss/rss.html
     kind: rss

@@ -70,3 +70,26 @@ keywords:
   - term: china
     relevance: 0.25
     severity: 0.35
+
+  # trade-policy / legal shock risk (tariffs, court rulings)
+  - term: tariff
+    relevance: 0.45
+    severity: 0.70
+  - term: trade war
+    relevance: 0.40
+    severity: 0.70
+  - term: import duty
+    relevance: 0.35
+    severity: 0.60
+  - term: supreme court
+    relevance: 0.45
+    severity: 0.80
+  - term: scotus
+    relevance: 0.45
+    severity: 0.80
+  - term: court ruling
+    relevance: 0.35
+    severity: 0.65
+  - term: injunction
+    relevance: 0.25
+    severity: 0.55

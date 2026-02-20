@@ -38,6 +38,11 @@ GEO_MATERIALITY_TERMS = (
     "wti",
     "dxy",
     "yield",
+    "tariff",
+    "trade",
+    "supreme court",
+    "scotus",
+    "injunction",
 )
 
 
