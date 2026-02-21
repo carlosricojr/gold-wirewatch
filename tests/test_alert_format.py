@@ -12,6 +12,8 @@ def test_news_alert_format_max_10_lines() -> None:
     assert len(lines) <= 10
     assert lines[0].startswith("1) Timestamp ET:")
     assert lines[1].startswith("2) HEADLINE:")
+    assert lines[2].startswith("3) SUMMARY:")
+    assert "Risk interpretation for GC" in text
     assert "Cross-asset confirmers" in text
 
 

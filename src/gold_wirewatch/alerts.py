@@ -17,14 +17,16 @@ def _bias(score: ScoreResult) -> tuple[str, str]:
 def format_news_alert(item: FeedItem, score: ScoreResult, tz_name: str) -> str:
     ts = item.fetched_at.astimezone(ZoneInfo(tz_name)).strftime("%Y-%m-%d %H:%M:%S %Z")
     bias, conf = _bias(score)
+    summary = item.summary.strip() if item.summary.strip() else "(no feed summary provided)"
     why = "Rates/USD/risk/geopolitics/China signal from keyword hits: " + ", ".join(score.reasons)
     lines = [
         f"1) Timestamp ET: {ts}",
         f"2) HEADLINE: {item.title}",
-        f"3) Why it matters for GC: {why}",
-        f"4) Expected bias: {bias} | confidence: {conf}",
-        "5) Cross-asset confirmers: DXY, UST yields, JPY, oil, equities",
-        "6) What I'd watch next:",
+        f"3) SUMMARY: {summary}",
+        f"4) Risk interpretation for GC: {why}",
+        f"5) Expected bias: {bias} | confidence: {conf}",
+        "6) Cross-asset confirmers: DXY, UST yields, JPY, oil, equities",
+        "7) What I'd watch next:",
         "   - DXY + US10Y real yield reaction in next 5-15m",
         "   - Risk sentiment follow-through across equities/oil",
     ]
