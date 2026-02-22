@@ -45,6 +45,16 @@ GEO_MATERIALITY_TERMS = (
     "injunction",
 )
 
+POLICY_WATCH_TERMS = (
+    "tariff",
+    "trade war",
+    "import duty",
+    "supreme court",
+    "scotus",
+    "court ruling",
+    "injunction",
+)
+
 
 def load_keywords(path: str) -> KeywordMap:
     data = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
@@ -70,6 +80,12 @@ def geo_watch_reasons(item: FeedItem) -> list[str]:
     return []
 
 
+def policy_watch_reasons(item: FeedItem) -> list[str]:
+    text = f"{item.title} {item.summary}".lower()
+    hits = [term for term in POLICY_WATCH_TERMS if term in text]
+    return [f"policy:{h}" for h in hits][:6]
+
+
 def score_item(item: FeedItem, keywords: KeywordMap) -> ScoreResult:
     text = f"{item.title} {item.summary}".lower()
     rel = 0.0
@@ -87,6 +103,10 @@ def score_item(item: FeedItem, keywords: KeywordMap) -> ScoreResult:
     geo_reasons = geo_watch_reasons(item)
     if geo_reasons:
         reasons.extend(geo_reasons)
+
+    policy_reasons = policy_watch_reasons(item)
+    if policy_reasons:
+        reasons.extend(policy_reasons)
 
     rel = min(rel, 1.0)
     sev = min(sev, 1.0)

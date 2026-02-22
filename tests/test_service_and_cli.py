@@ -45,6 +45,28 @@ def test_poll_once_handles_feed_errors(tmp_path, monkeypatch) -> None:
     assert svc.poll_once() == 0
 
 
+def test_poll_once_reloads_runtime_thresholds_and_keywords(tmp_path, monkeypatch) -> None:
+    settings = Settings(openclaw_token="tok", relevance_threshold=0.9, severity_threshold=0.9)
+    feeds = [FeedConfig("a", "u", "rss")]
+    svc = WireWatchService(settings, feeds, Storage(str(tmp_path / "reload.db")), KEYWORDS)
+
+    monkeypatch.setattr("gold_wirewatch.service.load_keywords", lambda _: {"tariff": (0.45, 0.7)})
+
+    class T:
+        relevance_threshold = 0.45
+        severity_threshold = 0.45
+        market_move_delta_usd = 5.0
+        market_move_window_seconds = 60
+
+    monkeypatch.setattr("gold_wirewatch.service.load_thresholds", lambda _: T())
+    monkeypatch.setattr("gold_wirewatch.service.poll_feed", lambda client, feed, cfg: [])
+
+    assert svc.poll_once() == 0
+    assert svc.settings.relevance_threshold == 0.45
+    assert svc.settings.market_move_delta_usd == 5.0
+    assert "tariff" in svc.keywords
+
+
 def test_process_items_geo_watch_path_triggers_even_below_main_gate(tmp_path) -> None:
     settings = Settings(openclaw_token="tok", relevance_threshold=0.9, severity_threshold=0.9)
     svc = WireWatchService(settings, [], Storage(str(tmp_path / "geo.db")), KEYWORDS)
@@ -63,6 +85,29 @@ def test_process_items_geo_watch_path_triggers_even_below_main_gate(tmp_path) ->
     )
     assert svc.process_items([item]) == 1
     assert len(fired) == 1
+
+
+def test_policy_watch_path_triggers_even_when_main_gate_misses(tmp_path) -> None:
+    settings = Settings(openclaw_token="tok", relevance_threshold=0.9, severity_threshold=0.9)
+    svc = WireWatchService(settings, [], Storage(str(tmp_path / "policy.db")), KEYWORDS)
+
+    fired: list[tuple[str, object]] = []
+    svc.oc.trigger = lambda text, context=None: fired.append((text, context))  # type: ignore[method-assign]
+
+    item = FeedItem(
+        source="policy",
+        title="Trump raises global tariffs to 15% after Supreme Court ruling",
+        summary="",
+        url="u",
+        guid="policy-1",
+        published_at=None,
+        fetched_at=datetime.now(UTC),
+    )
+    assert svc.process_items([item]) == 1
+    assert len(fired) == 1
+    context = fired[0][1]
+    assert isinstance(context, dict)
+    assert context.get("triggerPath") == "policy_watch"
 
 
 def test_geo_watch_cooldown_blocks_repeated_geo_alerts(tmp_path) -> None:

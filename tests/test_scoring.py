@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 
 from gold_wirewatch.models import FeedItem
-from gold_wirewatch.scoring import geo_watch_reasons, score_item
+from gold_wirewatch.scoring import geo_watch_reasons, policy_watch_reasons, score_item
 
 KEYWORDS = {
     "fed": (0.35, 0.5),
@@ -66,3 +66,19 @@ def test_geo_watch_ignores_non_iran_regional_violence_headline() -> None:
         fetched_at=datetime.now(UTC),
     )
     assert geo_watch_reasons(item) == []
+
+
+def test_policy_watch_detects_tariff_and_court_shock() -> None:
+    item = FeedItem(
+        source="policy",
+        title="Supreme Court strikes tariffs; White House announces new 10% global tariff",
+        summary="Trade-policy whipsaw raises macro uncertainty",
+        url="u",
+        guid="g5",
+        published_at=None,
+        fetched_at=datetime.now(UTC),
+    )
+    reasons = policy_watch_reasons(item)
+    assert reasons
+    assert any(r == "policy:tariff" for r in reasons)
+    assert any(r == "policy:supreme court" for r in reasons)

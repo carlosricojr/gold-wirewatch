@@ -10,12 +10,12 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 
 from .alerts import format_market_move_alert, format_news_alert
-from .config import FeedConfig, Settings
+from .config import FeedConfig, Settings, load_thresholds
 from .feeds import poll_feed, stable_item_key
 from .models import FeedItem
 from .openclaw_client import OpenClawClient
 from .scheduler import current_poll_interval
-from .scoring import KeywordMap, geo_watch_reasons, score_item
+from .scoring import KeywordMap, geo_watch_reasons, load_keywords, policy_watch_reasons, score_item
 from .storage import Storage
 
 
@@ -27,6 +27,7 @@ class MarketWebhookPayload(BaseModel):
 
 
 GEO_WATCH_COOLDOWN_SECONDS = 600
+POLICY_WATCH_COOLDOWN_SECONDS = 900
 
 
 class WireWatchService:
@@ -44,6 +45,18 @@ class WireWatchService:
         self.oc = OpenClawClient(settings)
         self.enabled = True
 
+    def _reload_runtime_config(self) -> None:
+        try:
+            self.keywords = load_keywords(self.settings.keywords_path)
+            thresholds = load_thresholds(self.settings.thresholds_path)
+            self.settings.relevance_threshold = thresholds.relevance_threshold
+            self.settings.severity_threshold = thresholds.severity_threshold
+            self.settings.market_move_delta_usd = thresholds.market_move_delta_usd
+            self.settings.market_move_window_seconds = thresholds.market_move_window_seconds
+        except Exception:
+            # Keep last-known-good runtime config if reload fails.
+            pass
+
     def process_items(self, items: list[FeedItem]) -> int:
         fired = 0
         for item in items:
@@ -57,13 +70,22 @@ class WireWatchService:
                 and score.severity_score >= self.settings.severity_threshold
             )
             geo_reasons = geo_watch_reasons(item)
+            policy_reasons = policy_watch_reasons(item)
             geo_gate = bool(geo_reasons)
-            should_fire = meets_main_gate or geo_gate
+            policy_gate = bool(policy_reasons)
+            should_fire = meets_main_gate or geo_gate or policy_gate
             if geo_gate and self.storage.has_recent_event("geo_watch", GEO_WATCH_COOLDOWN_SECONDS):
+                should_fire = False
+            if policy_gate and self.storage.has_recent_event("policy_watch", POLICY_WATCH_COOLDOWN_SECONDS):
                 should_fire = False
 
             if should_fire:
-                trigger_path = "main_gate" if meets_main_gate else "geo_watch"
+                if meets_main_gate:
+                    trigger_path = "main_gate"
+                elif geo_gate:
+                    trigger_path = "geo_watch"
+                else:
+                    trigger_path = "policy_watch"
                 alert_text = format_news_alert(item, score, self.settings.timezone)
                 self.oc.trigger(
                     text=alert_text,
@@ -76,9 +98,9 @@ class WireWatchService:
                         "triggerPath": trigger_path,
                     },
                 )
-                if trigger_path == "geo_watch":
+                if trigger_path in {"geo_watch", "policy_watch"}:
                     self.storage.save_event(
-                        "geo_watch",
+                        trigger_path,
                         json.dumps({"source": item.source, "title": item.title, "url": item.url}),
                     )
                 fired += 1
@@ -87,6 +109,7 @@ class WireWatchService:
     def poll_once(self) -> int:
         if not self.enabled:
             return 0
+        self._reload_runtime_config()
         fired = 0
         with httpx.Client() as client:
             for feed in self.feeds:
