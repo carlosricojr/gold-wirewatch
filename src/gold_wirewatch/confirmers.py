@@ -2,14 +2,22 @@
 
 Confirmers: DXY, US10Y (real yield proxy), Oil (WTI/Brent), USDJPY, Equities risk tone.
 Each provider is abstract with graceful unavailable state so tests pass without live data.
+
+Live providers use Yahoo Finance CSV endpoint (no API key needed, stable).
 """
 from __future__ import annotations
 
+import logging
+import re
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
+
+import httpx
+
+logger = logging.getLogger(__name__)
 
 
 class ConfirmerName(str, Enum):
@@ -135,6 +143,119 @@ class FallbackProvider(ConfirmerProvider):
         )
 
 
+class YahooFinanceProvider(ConfirmerProvider):
+    """Fetches latest price from Yahoo Finance v8 chart API (no key needed).
+
+    Uses the chart endpoint which returns JSON with current market price.
+    """
+
+    CHART_URL = "https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
+    HEADERS = {"User-Agent": "Mozilla/5.0 gold-wirewatch/0.1"}
+    TIMEOUT = 5.0
+
+    def __init__(self, name: ConfirmerName, symbol: str, source_label: str = "") -> None:
+        self.name = name
+        self.symbol = symbol
+        self.source_label = source_label or f"yahoo:{symbol}"
+
+    def fetch(self) -> ConfirmerReading:
+        try:
+            resp = httpx.get(
+                self.CHART_URL.format(symbol=self.symbol),
+                headers=self.HEADERS,
+                timeout=self.TIMEOUT,
+                follow_redirects=True,
+            )
+            resp.raise_for_status()
+            return self.parse_response(resp.json())
+        except Exception as exc:
+            logger.debug("YahooFinanceProvider(%s) failed: %s", self.symbol, exc)
+            return ConfirmerReading(
+                name=self.name,
+                status=ConfirmerStatus.UNAVAILABLE,
+                source_label=self.source_label,
+            )
+
+    def parse_response(self, data: dict) -> ConfirmerReading:  # type: ignore[type-arg]
+        """Parse Yahoo Finance chart JSON response. Raises on malformed data."""
+        result = data["chart"]["result"][0]
+        meta = result["meta"]
+        price = float(meta["regularMarketPrice"])
+        ts = datetime.fromtimestamp(int(meta["regularMarketTime"]), tz=UTC)
+
+        age = (datetime.now(UTC) - ts).total_seconds()
+        status = ConfirmerStatus.FRESH if age < FRESHNESS_SECONDS else ConfirmerStatus.STALE
+
+        return ConfirmerReading(
+            name=self.name,
+            status=status,
+            value=price,
+            timestamp=ts,
+            source_label=self.source_label,
+        )
+
+
+# --- Concrete provider factories for each confirmer ---
+
+def make_dxy_provider() -> ConfirmerProvider:
+    """DXY via UUP ETF (tracks DXY)."""
+    return FallbackProvider(
+        [YahooFinanceProvider(ConfirmerName.DXY, "DX-Y.NYB", "yahoo:DX-Y.NYB"),
+         YahooFinanceProvider(ConfirmerName.DXY, "UUP", "yahoo:UUP"),
+         StubProvider(ConfirmerName.DXY)],
+        ConfirmerName.DXY,
+    )
+
+
+def make_us10y_provider() -> ConfirmerProvider:
+    """US 10Y yield as real-yield proxy."""
+    return FallbackProvider(
+        [YahooFinanceProvider(ConfirmerName.US10Y, "^TNX", "yahoo:^TNX"),
+         StubProvider(ConfirmerName.US10Y)],
+        ConfirmerName.US10Y,
+    )
+
+
+def make_oil_provider() -> ConfirmerProvider:
+    """WTI crude oil, fallback to Brent."""
+    return FallbackProvider(
+        [YahooFinanceProvider(ConfirmerName.OIL, "CL=F", "yahoo:CL=F"),
+         YahooFinanceProvider(ConfirmerName.OIL, "BZ=F", "yahoo:BZ=F"),
+         StubProvider(ConfirmerName.OIL)],
+        ConfirmerName.OIL,
+    )
+
+
+def make_usdjpy_provider() -> ConfirmerProvider:
+    """USDJPY spot."""
+    return FallbackProvider(
+        [YahooFinanceProvider(ConfirmerName.USDJPY, "JPY=X", "yahoo:JPY=X"),
+         StubProvider(ConfirmerName.USDJPY)],
+        ConfirmerName.USDJPY,
+    )
+
+
+def make_equities_provider() -> ConfirmerProvider:
+    """Equities risk tone via ES futures, fallback to SPY."""
+    return FallbackProvider(
+        [YahooFinanceProvider(ConfirmerName.EQUITIES, "ES=F", "yahoo:ES=F"),
+         YahooFinanceProvider(ConfirmerName.EQUITIES, "SPY", "yahoo:SPY"),
+         StubProvider(ConfirmerName.EQUITIES)],
+        ConfirmerName.EQUITIES,
+    )
+
+
+def make_live_providers() -> dict[ConfirmerName, ConfirmerProvider]:
+    """Build the full live provider chain with fallbacks."""
+    return {
+        ConfirmerName.DXY: make_dxy_provider(),
+        ConfirmerName.US10Y: make_us10y_provider(),
+        ConfirmerName.OIL: make_oil_provider(),
+        ConfirmerName.USDJPY: make_usdjpy_provider(),
+        ConfirmerName.EQUITIES: make_equities_provider(),
+    }
+
+
 class ConfirmerEngine:
     """Fetches all confirmers and produces a snapshot."""
 
@@ -142,6 +263,11 @@ class ConfirmerEngine:
         self.providers: dict[ConfirmerName, ConfirmerProvider] = providers or {
             name: StubProvider(name) for name in ConfirmerName
         }
+
+    @classmethod
+    def with_live_providers(cls) -> ConfirmerEngine:
+        """Factory: build engine with live Yahoo Finance providers + fallback stubs."""
+        return cls(providers=make_live_providers())
 
     def fetch_all(self) -> ConfirmerSnapshot:
         readings: list[ConfirmerReading] = []
