@@ -107,7 +107,7 @@ def test_policy_watch_path_triggers_even_when_main_gate_misses(tmp_path) -> None
     assert len(fired) == 1
     context = fired[0][1]
     assert isinstance(context, dict)
-    assert context.get("triggerPath") == "policy_watch"
+    assert context.get("trigger_path") == "policy_watch"
 
 
 def test_geo_watch_cooldown_blocks_repeated_geo_alerts(tmp_path) -> None:

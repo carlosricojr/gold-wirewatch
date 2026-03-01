@@ -9,14 +9,19 @@ import httpx
 from fastapi import FastAPI
 from pydantic import BaseModel
 
+from .alert_payload import build_alert_payload, build_market_move_payload
 from .alerts import format_market_move_alert, format_news_alert
 from .config import FeedConfig, Settings, load_thresholds
+from .confirmers import ConfirmerEngine
+from .evidence_gate import DecisionState, apply_evidence_gate, decide_from_scores
 from .feeds import poll_feed, stable_item_key
 from .models import FeedItem
 from .openclaw_client import OpenClawClient
 from .scheduler import current_poll_interval
 from .scoring import KeywordMap, geo_watch_reasons, load_keywords, policy_watch_reasons, score_item
+from .source_tier import corroborate
 from .storage import Storage
+from .suppression import SuppressionState, suppression_key
 
 
 class MarketWebhookPayload(BaseModel):
@@ -37,6 +42,7 @@ class WireWatchService:
         feeds: list[FeedConfig],
         storage: Storage,
         keywords: KeywordMap,
+        confirmer_engine: ConfirmerEngine | None = None,
     ) -> None:
         self.settings = settings
         self.feeds = feeds
@@ -44,6 +50,8 @@ class WireWatchService:
         self.keywords = keywords
         self.oc = OpenClawClient(settings)
         self.enabled = True
+        self.confirmer_engine = confirmer_engine or ConfirmerEngine()
+        self.suppression = SuppressionState()
 
     def _reload_runtime_config(self) -> None:
         try:
@@ -59,6 +67,9 @@ class WireWatchService:
 
     def process_items(self, items: list[FeedItem]) -> int:
         fired = 0
+        # Fetch confirmers once per batch for efficiency
+        confirmers = self.confirmer_engine.fetch_all()
+
         for item in items:
             item_key = stable_item_key(item)
             if self.storage.is_seen(item_key):
@@ -86,17 +97,31 @@ class WireWatchService:
                     trigger_path = "geo_watch"
                 else:
                     trigger_path = "policy_watch"
-                alert_text = format_news_alert(item, score, self.settings.timezone)
+
+                # --- Phase-1 hardening: source tier + evidence gate ---
+                source_meta = corroborate([item.source])
+                raw_decision = decide_from_scores(
+                    score.relevance_score, score.severity_score,
+                    geo_hit=geo_gate, policy_hit=policy_gate,
+                )
+                verdict = apply_evidence_gate(source_meta, confirmers, raw_decision)
+
+                # Delta-only suppression
+                sup_key = suppression_key(source_meta, confirmers, verdict)
+                if self.suppression.should_suppress(trigger_path, sup_key):
+                    continue
+                self.suppression.record(trigger_path, sup_key)
+
+                # Build structured payload
+                payload = build_alert_payload(
+                    item, score, source_meta, verdict, confirmers,
+                    trigger_path, self.settings.timezone,
+                )
+
+                # Send structured payload (compact format as text, full dict as context)
                 self.oc.trigger(
-                    text=alert_text,
-                    context={
-                        "source": item.source,
-                        "url": item.url,
-                        "relevanceScore": score.relevance_score,
-                        "severityScore": score.severity_score,
-                        "reasons": score.reasons,
-                        "triggerPath": trigger_path,
-                    },
+                    text=payload.format_compact(),
+                    context=payload.to_dict(),
                 )
                 if trigger_path in {"geo_watch", "policy_watch"}:
                     self.storage.save_event(
@@ -149,21 +174,26 @@ class WireWatchService:
         quick_enough = window <= self.settings.market_move_window_seconds
         if not (enough_delta and quick_enough):
             return False
-        payload = {
+        raw_payload = {
             "symbol": symbol,
             "delta": delta,
             "window": window,
             "current": current,
         }
-        self.storage.save_event("market_move", json.dumps(payload))
+        self.storage.save_event("market_move", json.dumps(raw_payload))
+
+        # Phase-1 hardening for market moves
+        confirmers = self.confirmer_engine.fetch_all()
+        raw_decision = DecisionState.CONDITIONAL if delta >= 12.0 else DecisionState.FADE
+        source_meta = corroborate(["market_data"])
+        verdict = apply_evidence_gate(source_meta, confirmers, raw_decision)
+
+        payload = build_market_move_payload(
+            symbol, delta, window, current, confirmers, verdict, self.settings.timezone,
+        )
         self.oc.trigger(
-            text=format_market_move_alert(symbol, delta, window, self.settings.timezone),
-            context={
-                "symbol": symbol,
-                "delta": delta,
-                "windowSeconds": window,
-                "current": current,
-            },
+            text=payload.format_compact(),
+            context=payload.to_dict(),
         )
         return True
 
