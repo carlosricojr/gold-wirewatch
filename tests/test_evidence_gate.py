@@ -1,5 +1,5 @@
 """Tests for evidence_gate module."""
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from gold_wirewatch.confirmers import (
     ConfirmerName,
@@ -47,6 +47,22 @@ def test_actionable_gated_with_few_confirmers():
 
 def test_conditional_gated_with_few_confirmers():
     v = apply_evidence_gate(_tier_a_meta(), _make_snapshot(1), DecisionState.CONDITIONAL)
+    assert v.decision == DecisionState.INSUFFICIENT_TAPE
+    assert v.gated
+
+
+def test_actionable_gated_when_fresh_but_unsynchronized():
+    now = datetime.now(UTC)
+    snap = ConfirmerSnapshot(
+        readings=[
+            ConfirmerReading(ConfirmerName.DXY, ConfirmerStatus.FRESH, 1.0, now),
+            ConfirmerReading(ConfirmerName.US10Y, ConfirmerStatus.FRESH, 1.0, now - timedelta(minutes=4)),
+            ConfirmerReading(ConfirmerName.OIL, ConfirmerStatus.FRESH, 1.0, now - timedelta(minutes=4)),
+            ConfirmerReading(ConfirmerName.USDJPY, ConfirmerStatus.UNAVAILABLE),
+            ConfirmerReading(ConfirmerName.EQUITIES, ConfirmerStatus.UNAVAILABLE),
+        ]
+    )
+    v = apply_evidence_gate(_tier_a_meta(), snap, DecisionState.ACTIONABLE_LONG)
     assert v.decision == DecisionState.INSUFFICIENT_TAPE
     assert v.gated
 

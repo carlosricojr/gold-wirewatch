@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import threading
 import time
+from dataclasses import dataclass
 from datetime import UTC, datetime
 
 import httpx
@@ -46,6 +48,16 @@ GEO_WATCH_COOLDOWN_SECONDS = 600
 POLICY_WATCH_COOLDOWN_SECONDS = 900
 
 
+@dataclass
+class ServiceMetrics:
+    batches: int = 0
+    alerts_sent: int = 0
+    suppressed_delta: int = 0
+    suppressed_content: int = 0
+    suppressed_delivery: int = 0
+    insufficient_tape_snapshots: int = 0
+
+
 class WireWatchService:
     def __init__(
         self,
@@ -65,6 +77,7 @@ class WireWatchService:
         self.suppression = SuppressionState()
         self.content_dedup = ContentDeduplicator(cooldown_seconds=600.0)
         self.delivery_dedup = DeliveryDeduplicator(ttl_seconds=1800.0)
+        self.metrics = ServiceMetrics()
 
     def _reload_runtime_config(self) -> None:
         try:
@@ -80,8 +93,11 @@ class WireWatchService:
 
     def process_items(self, items: list[FeedItem]) -> int:
         fired = 0
+        self.metrics.batches += 1
         # Fetch confirmers once per batch for efficiency
         confirmers = self.confirmer_engine.fetch_all()
+        if confirmers.fresh_count < 3:
+            self.metrics.insufficient_tape_snapshots += 1
 
         for item in items:
             item_key = stable_item_key(item)
@@ -122,6 +138,7 @@ class WireWatchService:
                 # Delta-only suppression
                 sup_key = suppression_key(source_meta, confirmers, verdict)
                 if self.suppression.should_suppress(trigger_path, sup_key):
+                    self.metrics.suppressed_delta += 1
                     continue
                 self.suppression.record(trigger_path, sup_key)
 
@@ -132,6 +149,7 @@ class WireWatchService:
                 if self.content_dedup.should_suppress(
                     fp, source_meta.tier.value, verdict.decision.value, fresh_bucket,
                 ):
+                    self.metrics.suppressed_content += 1
                     continue
                 self.content_dedup.record(
                     fp, source_meta.tier.value, verdict.decision.value, fresh_bucket,
@@ -140,6 +158,7 @@ class WireWatchService:
                 # Delivery-level dedupe (replay guard)
                 delivery_id = DeliveryDeduplicator.make_delivery_id(fp, sup_key)
                 if self.delivery_dedup.is_duplicate(delivery_id):
+                    self.metrics.suppressed_delivery += 1
                     continue
                 self.delivery_dedup.record(delivery_id)
 
@@ -150,10 +169,16 @@ class WireWatchService:
                 )
 
                 # Send structured payload (compact format as text, full dict as context)
+                context = payload.to_dict()
+                idempotency_key = hashlib.sha256(
+                    f"{item_key}|{trigger_path}|{verdict.decision.value}|{sup_key}".encode("utf-8")
+                ).hexdigest()[:24]
+                context["idempotency_key"] = idempotency_key
                 self.oc.trigger(
                     text=payload.format_compact(),
-                    context=payload.to_dict(),
+                    context=context,
                 )
+                self.metrics.alerts_sent += 1
                 if trigger_path in {"geo_watch", "policy_watch"}:
                     self.storage.save_event(
                         trigger_path,
@@ -222,10 +247,16 @@ class WireWatchService:
         payload = build_market_move_payload(
             symbol, delta, window, current, confirmers, verdict, self.settings.timezone,
         )
+        context = payload.to_dict()
+        idempotency_key = hashlib.sha256(
+            f"market:{symbol}:{window}:{previous}:{current}:{verdict.decision.value}".encode("utf-8")
+        ).hexdigest()[:24]
+        context["idempotency_key"] = idempotency_key
         self.oc.trigger(
             text=payload.format_compact(),
-            context=payload.to_dict(),
+            context=context,
         )
+        self.metrics.alerts_sent += 1
         return True
 
 
@@ -235,6 +266,25 @@ def create_webhook_app(service: WireWatchService) -> FastAPI:
     @app.get("/health")
     def health() -> dict[str, str]:
         return {"status": "ok"}
+
+    @app.get("/metrics")
+    def metrics() -> dict[str, float | int]:
+        total_suppressed = (
+            service.metrics.suppressed_delta
+            + service.metrics.suppressed_content
+            + service.metrics.suppressed_delivery
+        )
+        total_events = service.metrics.alerts_sent + total_suppressed
+        duplicate_rate = (total_suppressed / total_events) if total_events else 0.0
+        return {
+            "batches": service.metrics.batches,
+            "alerts_sent": service.metrics.alerts_sent,
+            "suppressed_delta": service.metrics.suppressed_delta,
+            "suppressed_content": service.metrics.suppressed_content,
+            "suppressed_delivery": service.metrics.suppressed_delivery,
+            "insufficient_tape_snapshots": service.metrics.insufficient_tape_snapshots,
+            "duplicate_suppression_rate": round(duplicate_rate, 4),
+        }
 
     @app.post("/webhook/market-move")
     def market_move(payload: MarketWebhookPayload) -> dict[str, object]:

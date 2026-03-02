@@ -1,12 +1,12 @@
 """Confirmer fetch module with fallback providers for cross-asset confirmation.
 
-Confirmers: DXY, US10Y (real yield proxy), Oil (WTI/Brent), USDJPY, Equities risk tone.
+Confirmers: DXY, US10Y (real yield preferred, with nominal proxy fallback),
+Oil (WTI/Brent), USDJPY, Equities risk tone.
 Each provider is abstract with graceful unavailable state so tests pass without live data.
-
-Live providers use Yahoo Finance CSV endpoint (no API key needed, stable).
 """
 from __future__ import annotations
 
+import csv
 import logging
 import re
 import time
@@ -81,6 +81,23 @@ class ConfirmerSnapshot:
         ts = self.fetched_at.strftime("%H:%M:%S")
         return f"[{ts}] {' | '.join(parts)} (fresh={self.fresh_count}/{len(self.readings)})"
 
+    def fresh_timestamps(self) -> list[datetime]:
+        return [r.timestamp for r in self.readings if r.is_fresh and r.timestamp is not None]
+
+    def fresh_time_spread_seconds(self) -> float | None:
+        timestamps = self.fresh_timestamps()
+        if len(timestamps) < 2:
+            return 0.0 if timestamps else None
+        return (max(timestamps) - min(timestamps)).total_seconds()
+
+    def has_synchronized_fresh(self, min_fresh: int = 3, max_skew_seconds: int = 120) -> bool:
+        if self.fresh_count < min_fresh:
+            return False
+        spread = self.fresh_time_spread_seconds()
+        if spread is None:
+            return False
+        return spread <= max_skew_seconds
+
 
 class ConfirmerProvider(ABC):
     """Abstract base for a single confirmer data provider."""
@@ -144,10 +161,7 @@ class FallbackProvider(ConfirmerProvider):
 
 
 class YahooFinanceProvider(ConfirmerProvider):
-    """Fetches latest price from Yahoo Finance v8 chart API (no key needed).
-
-    Uses the chart endpoint which returns JSON with current market price.
-    """
+    """Fetches latest price from Yahoo Finance v8 chart API (no key needed)."""
 
     CHART_URL = "https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
     HEADERS = {"User-Agent": "Mozilla/5.0 gold-wirewatch/0.1"}
@@ -195,12 +209,103 @@ class YahooFinanceProvider(ConfirmerProvider):
         )
 
 
+class StooqProvider(ConfirmerProvider):
+    """Fallback provider via Stooq CSV endpoint."""
+
+    URL = "https://stooq.com/q/l/?s={symbol}&f=sd2t2ohlcv&h&e=csv"
+    HEADERS = {"User-Agent": "Mozilla/5.0 gold-wirewatch/0.1"}
+    TIMEOUT = 5.0
+
+    def __init__(self, name: ConfirmerName, symbol: str, source_label: str = "") -> None:
+        self.name = name
+        self.symbol = symbol
+        self.source_label = source_label or f"stooq:{symbol}"
+
+    def fetch(self) -> ConfirmerReading:
+        try:
+            resp = httpx.get(
+                self.URL.format(symbol=self.symbol),
+                headers=self.HEADERS,
+                timeout=self.TIMEOUT,
+                follow_redirects=True,
+            )
+            resp.raise_for_status()
+            return self.parse_response(resp.text)
+        except Exception as exc:
+            logger.debug("StooqProvider(%s) failed: %s", self.symbol, exc)
+            return ConfirmerReading(
+                name=self.name,
+                status=ConfirmerStatus.UNAVAILABLE,
+                source_label=self.source_label,
+            )
+
+    def parse_response(self, payload: str) -> ConfirmerReading:
+        reader = csv.DictReader(payload.splitlines())
+        row = next(reader)
+        close = float(row["Close"])
+        dt = datetime.fromisoformat(f"{row['Date']}T{row['Time']}").replace(tzinfo=UTC)
+        age = (datetime.now(UTC) - dt).total_seconds()
+        status = ConfirmerStatus.FRESH if age < FRESHNESS_SECONDS else ConfirmerStatus.STALE
+        return ConfirmerReading(
+            name=self.name,
+            status=status,
+            value=close,
+            timestamp=dt,
+            source_label=self.source_label,
+        )
+
+
+class FredSeriesProvider(ConfirmerProvider):
+    """Fetches a FRED series via CSV endpoint (no API key)."""
+
+    URL = "https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}"
+    TIMEOUT = 5.0
+
+    def __init__(self, name: ConfirmerName, series_id: str, source_label: str = "") -> None:
+        self.name = name
+        self.series_id = series_id
+        self.source_label = source_label or f"fred:{series_id}"
+
+    def fetch(self) -> ConfirmerReading:
+        try:
+            resp = httpx.get(self.URL.format(series_id=self.series_id), timeout=self.TIMEOUT)
+            resp.raise_for_status()
+            return self.parse_response(resp.text)
+        except Exception as exc:
+            logger.debug("FredSeriesProvider(%s) failed: %s", self.series_id, exc)
+            return ConfirmerReading(
+                name=self.name,
+                status=ConfirmerStatus.UNAVAILABLE,
+                source_label=self.source_label,
+            )
+
+    def parse_response(self, payload: str) -> ConfirmerReading:
+        rows = list(csv.DictReader(payload.splitlines()))
+        for row in reversed(rows):
+            value_raw = (row.get(self.series_id) or "").strip()
+            if not value_raw or value_raw == ".":
+                continue
+            value = float(value_raw)
+            ts = datetime.fromisoformat(str(row["DATE"]) + "T00:00:00+00:00")
+            age = (datetime.now(UTC) - ts).total_seconds()
+            status = ConfirmerStatus.FRESH if age < FRESHNESS_SECONDS else ConfirmerStatus.STALE
+            return ConfirmerReading(
+                name=self.name,
+                status=status,
+                value=value,
+                timestamp=ts,
+                source_label=self.source_label,
+            )
+        raise ValueError("No valid FRED datapoint found")
+
+
 # --- Concrete provider factories for each confirmer ---
 
 def make_dxy_provider() -> ConfirmerProvider:
-    """DXY via UUP ETF (tracks DXY)."""
+    """DXY via Yahoo primary, Stooq and UUP fallback."""
     return FallbackProvider(
         [YahooFinanceProvider(ConfirmerName.DXY, "DX-Y.NYB", "yahoo:DX-Y.NYB"),
+         StooqProvider(ConfirmerName.DXY, "dx.f", "stooq:dx.f"),
          YahooFinanceProvider(ConfirmerName.DXY, "UUP", "yahoo:UUP"),
          StubProvider(ConfirmerName.DXY)],
         ConfirmerName.DXY,
@@ -208,18 +313,20 @@ def make_dxy_provider() -> ConfirmerProvider:
 
 
 def make_us10y_provider() -> ConfirmerProvider:
-    """US 10Y yield as real-yield proxy."""
+    """US 10Y real yield (FRED DFII10) with nominal proxy fallback."""
     return FallbackProvider(
-        [YahooFinanceProvider(ConfirmerName.US10Y, "^TNX", "yahoo:^TNX"),
+        [FredSeriesProvider(ConfirmerName.US10Y, "DFII10", "fred:DFII10"),
+         YahooFinanceProvider(ConfirmerName.US10Y, "^TNX", "yahoo:^TNX"),
          StubProvider(ConfirmerName.US10Y)],
         ConfirmerName.US10Y,
     )
 
 
 def make_oil_provider() -> ConfirmerProvider:
-    """WTI crude oil, fallback to Brent."""
+    """WTI crude oil, fallback to Brent, with Stooq redundancy."""
     return FallbackProvider(
         [YahooFinanceProvider(ConfirmerName.OIL, "CL=F", "yahoo:CL=F"),
+         StooqProvider(ConfirmerName.OIL, "cl.f", "stooq:cl.f"),
          YahooFinanceProvider(ConfirmerName.OIL, "BZ=F", "yahoo:BZ=F"),
          StubProvider(ConfirmerName.OIL)],
         ConfirmerName.OIL,
@@ -227,19 +334,21 @@ def make_oil_provider() -> ConfirmerProvider:
 
 
 def make_usdjpy_provider() -> ConfirmerProvider:
-    """USDJPY spot."""
+    """USDJPY spot with Stooq fallback."""
     return FallbackProvider(
         [YahooFinanceProvider(ConfirmerName.USDJPY, "JPY=X", "yahoo:JPY=X"),
+         StooqProvider(ConfirmerName.USDJPY, "usdjpy", "stooq:usdjpy"),
          StubProvider(ConfirmerName.USDJPY)],
         ConfirmerName.USDJPY,
     )
 
 
 def make_equities_provider() -> ConfirmerProvider:
-    """Equities risk tone via ES futures, fallback to SPY."""
+    """Equities risk tone via ES futures, fallback to SPY + Stooq."""
     return FallbackProvider(
         [YahooFinanceProvider(ConfirmerName.EQUITIES, "ES=F", "yahoo:ES=F"),
          YahooFinanceProvider(ConfirmerName.EQUITIES, "SPY", "yahoo:SPY"),
+         StooqProvider(ConfirmerName.EQUITIES, "spy.us", "stooq:spy.us"),
          StubProvider(ConfirmerName.EQUITIES)],
         ConfirmerName.EQUITIES,
     )

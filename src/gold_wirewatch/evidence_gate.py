@@ -18,6 +18,7 @@ class DecisionState(str, Enum):
 
 
 MIN_FRESH_CONFIRMERS = 3  # Hard gate: need >= 3 fresh confirmers for actionable
+MAX_FRESH_SKEW_SECONDS = 120  # Hard gate: confirmers must be from a coherent reaction window
 
 
 @dataclass(frozen=True)
@@ -49,6 +50,14 @@ def apply_evidence_gate(
             decision = DecisionState.INSUFFICIENT_TAPE
             gated = True
 
+    # Hard gate: fresh confirmers exist but are not synchronized in time window
+    if decision in (DecisionState.ACTIONABLE_LONG, DecisionState.CONDITIONAL) and not confirmers.has_synchronized_fresh(
+        min_fresh=MIN_FRESH_CONFIRMERS,
+        max_skew_seconds=MAX_FRESH_SKEW_SECONDS,
+    ):
+        decision = DecisionState.INSUFFICIENT_TAPE
+        gated = True
+
     # Tier C single-source cannot be actionable without corroboration + confirmers
     if (
         source_meta.tier == SourceTier.C
@@ -59,12 +68,15 @@ def apply_evidence_gate(
             gated = True
 
     reason_parts = []
+    skew = confirmers.fresh_time_spread_seconds()
+    skew_text = "na" if skew is None else f"{int(skew)}s"
+
     if gated:
-        reason_parts.append(f"gated: fresh={fresh}/{MIN_FRESH_CONFIRMERS}req")
+        reason_parts.append(f"gated: fresh={fresh}/{MIN_FRESH_CONFIRMERS}req,skew={skew_text}")
         if source_meta.corroboration == CorroborationState.SINGLE_UNVERIFIED:
             reason_parts.append(f"tier={source_meta.tier.value}/single-unverified")
     else:
-        reason_parts.append(f"passed: fresh={fresh}")
+        reason_parts.append(f"passed: fresh={fresh},skew={skew_text}")
 
     return EvidenceVerdict(
         decision=decision,

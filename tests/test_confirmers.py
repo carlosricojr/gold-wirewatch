@@ -80,3 +80,18 @@ def test_snapshot_summary_line():
     assert "DXY=104.50" in line
     assert "US10Y=N/A" in line
     assert "fresh=1/2" in line
+
+
+def test_snapshot_sync_helpers():
+    now = datetime.now(UTC)
+    snap = ConfirmerSnapshot(
+        readings=[
+            ConfirmerReading(ConfirmerName.DXY, ConfirmerStatus.FRESH, 1.0, now),
+            ConfirmerReading(ConfirmerName.US10Y, ConfirmerStatus.FRESH, 1.0, now),
+            ConfirmerReading(ConfirmerName.OIL, ConfirmerStatus.FRESH, 1.0, now),
+            ConfirmerReading(ConfirmerName.USDJPY, ConfirmerStatus.UNAVAILABLE),
+            ConfirmerReading(ConfirmerName.EQUITIES, ConfirmerStatus.UNAVAILABLE),
+        ]
+    )
+    assert snap.fresh_time_spread_seconds() == 0.0
+    assert snap.has_synchronized_fresh(min_fresh=3, max_skew_seconds=120)

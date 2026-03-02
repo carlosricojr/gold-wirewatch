@@ -1,11 +1,12 @@
 from datetime import UTC, datetime
 
+from fastapi.testclient import TestClient
 from typer.testing import CliRunner
 
 from gold_wirewatch.cli import app
 from gold_wirewatch.config import FeedConfig, Settings
 from gold_wirewatch.models import FeedItem
-from gold_wirewatch.service import WireWatchService
+from gold_wirewatch.service import WireWatchService, create_webhook_app
 from gold_wirewatch.storage import Storage
 
 KEYWORDS = {"fed": (0.35, 0.5), "treasury": (0.3, 0.3), "risk-off": (0.25, 0.45)}
@@ -162,3 +163,16 @@ def test_cli_status_and_poll_once(tmp_path, monkeypatch) -> None:
     result2 = runner.invoke(app, ["status"], env=env)
     assert result2.exit_code == 0
     assert "timezone=" in result2.stdout
+
+
+def test_metrics_endpoint_exposes_hardening_counters(tmp_path) -> None:
+    settings = Settings(openclaw_token="tok", relevance_threshold=0.1, severity_threshold=0.1)
+    svc = WireWatchService(settings, [], Storage(str(tmp_path / "metrics.db")), KEYWORDS)
+    app = create_webhook_app(svc)
+    client = TestClient(app)
+
+    res = client.get("/metrics")
+    assert res.status_code == 200
+    body = res.json()
+    assert body["alerts_sent"] == 0
+    assert "duplicate_suppression_rate" in body
