@@ -28,6 +28,8 @@ from .suppression import SuppressionState, suppression_key
 
 
 class MarketWebhookPayload(BaseModel):
+    """Pydantic model for incoming market-move webhook requests."""
+
     symbol: str = "GC1!"
     previous: float | None = None
     current: float | None = None
@@ -50,6 +52,8 @@ POLICY_WATCH_COOLDOWN_SECONDS = 900
 
 @dataclass
 class ServiceMetrics:
+    """Counters tracking service activity and suppression statistics."""
+
     batches: int = 0
     alerts_sent: int = 0
     suppressed_delta: int = 0
@@ -59,6 +63,8 @@ class ServiceMetrics:
 
 
 class WireWatchService:
+    """Core polling service that fetches feeds, scores items, and dispatches alerts."""
+
     def __init__(
         self,
         settings: Settings,
@@ -92,6 +98,7 @@ class WireWatchService:
             pass
 
     def process_items(self, items: list[FeedItem]) -> int:
+        """Score, gate, deduplicate, and alert on a batch of feed items. Returns alert count."""
         fired = 0
         self.metrics.batches += 1
         # Fetch confirmers once per batch for efficiency
@@ -188,6 +195,7 @@ class WireWatchService:
         return fired
 
     def poll_once(self) -> int:
+        """Run one polling cycle across all feeds. Returns total alerts fired."""
         if not self.enabled:
             return 0
         self._reload_runtime_config()
@@ -202,6 +210,7 @@ class WireWatchService:
         return fired
 
     def run_forever(self) -> None:
+        """Poll feeds in an infinite loop with adaptive sleep intervals."""
         while True:
             self.poll_once()
             interval = current_poll_interval(
@@ -221,6 +230,7 @@ class WireWatchService:
         current: float | None,
         window: int,
     ) -> bool:
+        """Process a market-move webhook event. Returns True if an alert was sent."""
         if symbol != self.settings.market_move_symbol:
             return False
         if previous is None or current is None:
@@ -261,14 +271,17 @@ class WireWatchService:
 
 
 def create_webhook_app(service: WireWatchService) -> FastAPI:
+    """Create the FastAPI webhook application with health, metrics, and market-move endpoints."""
     app = FastAPI(title="gold-wirewatch-webhook")
 
     @app.get("/health")
     def health() -> dict[str, str]:
+        """Return basic health check response."""
         return {"status": "ok"}
 
     @app.get("/metrics")
     def metrics() -> dict[str, float | int]:
+        """Return service metrics including suppression and duplicate rates."""
         total_suppressed = (
             service.metrics.suppressed_delta
             + service.metrics.suppressed_content
@@ -288,6 +301,7 @@ def create_webhook_app(service: WireWatchService) -> FastAPI:
 
     @app.post("/webhook/market-move")
     def market_move(payload: MarketWebhookPayload) -> dict[str, object]:
+        """Handle incoming market-move webhook POST."""
         try:
             triggered = service.handle_market_move(
                 symbol=payload.symbol,
@@ -303,6 +317,7 @@ def create_webhook_app(service: WireWatchService) -> FastAPI:
 
 
 def start_service_with_webhook(service: WireWatchService) -> None:
+    """Start the polling service in a background thread and serve the webhook API."""
     import uvicorn
 
     thread = threading.Thread(target=service.run_forever, daemon=True)

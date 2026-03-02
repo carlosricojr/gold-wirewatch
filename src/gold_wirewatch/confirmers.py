@@ -21,6 +21,8 @@ logger = logging.getLogger(__name__)
 
 
 class ConfirmerName(str, Enum):
+    """Enumeration of cross-asset confirmer identifiers."""
+
     DXY = "DXY"
     US10Y = "US10Y"
     OIL = "OIL"
@@ -29,6 +31,8 @@ class ConfirmerName(str, Enum):
 
 
 class ConfirmerStatus(str, Enum):
+    """Freshness status of a confirmer reading."""
+
     FRESH = "fresh"          # Data fetched within freshness window
     STALE = "stale"          # Data exists but older than freshness window
     UNAVAILABLE = "unavailable"  # Could not fetch
@@ -39,6 +43,8 @@ FRESHNESS_SECONDS = 300  # 5 minutes default freshness window
 
 @dataclass(frozen=True)
 class ConfirmerReading:
+    """A single data point fetched from a confirmer source."""
+
     name: ConfirmerName
     status: ConfirmerStatus
     value: float | None = None
@@ -47,14 +53,17 @@ class ConfirmerReading:
 
     @property
     def is_fresh(self) -> bool:
+        """Return True if this reading has FRESH status."""
         return self.status == ConfirmerStatus.FRESH
 
     def age_seconds(self) -> float | None:
+        """Return seconds since timestamp, or None if no timestamp."""
         if self.timestamp is None:
             return None
         return (datetime.now(UTC) - self.timestamp).total_seconds()
 
     def summary_str(self) -> str:
+        """Return a compact human-readable summary of this reading."""
         if self.status == ConfirmerStatus.UNAVAILABLE:
             return f"{self.name.value}=N/A"
         val_str = f"{self.value:.2f}" if self.value is not None else "?"
@@ -65,32 +74,40 @@ class ConfirmerReading:
 
 @dataclass
 class ConfirmerSnapshot:
+    """Immutable collection of confirmer readings taken at a point in time."""
+
     readings: list[ConfirmerReading] = field(default_factory=list)
     fetched_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     @property
     def fresh_count(self) -> int:
+        """Count of readings with FRESH status."""
         return sum(1 for r in self.readings if r.is_fresh)
 
     @property
     def available_count(self) -> int:
+        """Count of readings that are not UNAVAILABLE."""
         return sum(1 for r in self.readings if r.status != ConfirmerStatus.UNAVAILABLE)
 
     def summary_line(self) -> str:
+        """Return a one-line summary of all readings with freshness ratio."""
         parts = [r.summary_str() for r in self.readings]
         ts = self.fetched_at.strftime("%H:%M:%S")
         return f"[{ts}] {' | '.join(parts)} (fresh={self.fresh_count}/{len(self.readings)})"
 
     def fresh_timestamps(self) -> list[datetime]:
+        """Return timestamps of fresh readings that have a non-None timestamp."""
         return [r.timestamp for r in self.readings if r.is_fresh and r.timestamp is not None]
 
     def fresh_time_spread_seconds(self) -> float | None:
+        """Return max-min spread in seconds among fresh timestamps, or None if none exist."""
         timestamps = self.fresh_timestamps()
         if len(timestamps) < 2:
             return 0.0 if timestamps else None
         return (max(timestamps) - min(timestamps)).total_seconds()
 
     def has_synchronized_fresh(self, min_fresh: int = 3, max_skew_seconds: int = 120) -> bool:
+        """Check that enough fresh readings exist with timestamps within the skew window."""
         fresh_ts = self.fresh_timestamps()
         if len(fresh_ts) < min_fresh:
             return False
@@ -102,7 +119,9 @@ class ConfirmerProvider(ABC):
     """Abstract base for a single confirmer data provider."""
 
     @abstractmethod
-    def fetch(self) -> ConfirmerReading: ...
+    def fetch(self) -> ConfirmerReading:
+        """Fetch a single confirmer reading from this provider."""
+        ...
 
 
 class StubProvider(ConfirmerProvider):
@@ -112,6 +131,7 @@ class StubProvider(ConfirmerProvider):
         self.name = name
 
     def fetch(self) -> ConfirmerReading:
+        """Return an UNAVAILABLE reading."""
         return ConfirmerReading(
             name=self.name,
             status=ConfirmerStatus.UNAVAILABLE,
@@ -128,6 +148,7 @@ class StaticProvider(ConfirmerProvider):
         self.source_label = source_label
 
     def fetch(self) -> ConfirmerReading:
+        """Return a FRESH reading with the configured static value."""
         return ConfirmerReading(
             name=self.name,
             status=ConfirmerStatus.FRESH,
@@ -145,6 +166,7 @@ class FallbackProvider(ConfirmerProvider):
         self.name = name
 
     def fetch(self) -> ConfirmerReading:
+        """Try providers in order; prefer FRESH, fall back to first STALE, then UNAVAILABLE."""
         stale_candidate: ConfirmerReading | None = None
         for p in self.providers:
             try:
@@ -177,6 +199,7 @@ class YahooFinanceProvider(ConfirmerProvider):
         self.source_label = source_label or f"yahoo:{symbol}"
 
     def fetch(self) -> ConfirmerReading:
+        """Fetch latest price from Yahoo Finance chart API."""
         try:
             resp = httpx.get(
                 self.CHART_URL.format(symbol=self.symbol),
@@ -226,6 +249,7 @@ class StooqProvider(ConfirmerProvider):
         self.source_label = source_label or f"stooq:{symbol}"
 
     def fetch(self) -> ConfirmerReading:
+        """Fetch latest price from Stooq CSV endpoint."""
         try:
             resp = httpx.get(
                 self.URL.format(symbol=self.symbol),
@@ -244,6 +268,7 @@ class StooqProvider(ConfirmerProvider):
             )
 
     def parse_response(self, payload: str) -> ConfirmerReading:
+        """Parse Stooq CSV response into a ConfirmerReading."""
         reader = csv.DictReader(payload.splitlines())
         row = next(reader)
         close = float(row["Close"])
@@ -271,6 +296,7 @@ class FredSeriesProvider(ConfirmerProvider):
         self.source_label = source_label or f"fred:{series_id}"
 
     def fetch(self) -> ConfirmerReading:
+        """Fetch latest value from FRED CSV endpoint."""
         try:
             resp = httpx.get(self.URL.format(series_id=self.series_id), timeout=self.TIMEOUT)
             resp.raise_for_status()
@@ -284,6 +310,7 @@ class FredSeriesProvider(ConfirmerProvider):
             )
 
     def parse_response(self, payload: str) -> ConfirmerReading:
+        """Parse FRED CSV response into a ConfirmerReading."""
         rows = list(csv.DictReader(payload.splitlines()))
         for row in reversed(rows):
             value_raw = (row.get(self.series_id) or "").strip()
@@ -383,6 +410,7 @@ class ConfirmerEngine:
         return cls(providers=make_live_providers())
 
     def fetch_all(self) -> ConfirmerSnapshot:
+        """Fetch all confirmers and return a snapshot."""
         readings: list[ConfirmerReading] = []
         for name in ConfirmerName:
             provider = self.providers.get(name, StubProvider(name))

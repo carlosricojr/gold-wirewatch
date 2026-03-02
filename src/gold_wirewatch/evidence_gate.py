@@ -9,6 +9,8 @@ from .source_tier import CorroborationState, SourceMeta, SourceTier
 
 
 class DecisionState(str, Enum):
+    """Possible decision states from the evidence gate."""
+
     ACTIONABLE_LONG = "Actionable long"
     CONDITIONAL = "Conditional"
     FADE = "Fade"
@@ -23,6 +25,8 @@ MAX_FRESH_SKEW_SECONDS = 120  # Hard gate: confirmers must be from a coherent re
 
 @dataclass(frozen=True)
 class EvidenceVerdict:
+    """Result of applying the evidence gate to a raw decision."""
+
     decision: DecisionState
     reason: str
     confirmer_fresh_count: int
