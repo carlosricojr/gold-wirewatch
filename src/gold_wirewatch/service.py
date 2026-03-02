@@ -14,6 +14,7 @@ from .alerts import format_market_move_alert, format_news_alert
 from .config import FeedConfig, Settings, load_thresholds
 from .confirmers import ConfirmerEngine
 from .evidence_gate import DecisionState, apply_evidence_gate, decide_from_scores
+from .dedupe import ContentDeduplicator, DeliveryDeduplicator, canonicalize_title, event_fingerprint
 from .feeds import poll_feed, stable_item_key
 from .models import FeedItem
 from .openclaw_client import OpenClawClient
@@ -29,6 +30,16 @@ class MarketWebhookPayload(BaseModel):
     previous: float | None = None
     current: float | None = None
     window_seconds: int = 120
+
+
+def _bucket_fresh_for_dedupe(count: int) -> str:
+    if count >= 4:
+        return "4+"
+    if count >= 3:
+        return "3"
+    if count >= 1:
+        return "1-2"
+    return "0"
 
 
 GEO_WATCH_COOLDOWN_SECONDS = 600
@@ -52,6 +63,8 @@ class WireWatchService:
         self.enabled = True
         self.confirmer_engine = confirmer_engine or ConfirmerEngine()
         self.suppression = SuppressionState()
+        self.content_dedup = ContentDeduplicator(cooldown_seconds=600.0)
+        self.delivery_dedup = DeliveryDeduplicator(ttl_seconds=1800.0)
 
     def _reload_runtime_config(self) -> None:
         try:
@@ -111,6 +124,24 @@ class WireWatchService:
                 if self.suppression.should_suppress(trigger_path, sup_key):
                     continue
                 self.suppression.record(trigger_path, sup_key)
+
+                # Content-level dedupe (near-duplicate titles)
+                canon = canonicalize_title(item.title)
+                fp = event_fingerprint(canon)
+                fresh_bucket = _bucket_fresh_for_dedupe(confirmers.fresh_count)
+                if self.content_dedup.should_suppress(
+                    fp, source_meta.tier.value, verdict.decision.value, fresh_bucket,
+                ):
+                    continue
+                self.content_dedup.record(
+                    fp, source_meta.tier.value, verdict.decision.value, fresh_bucket,
+                )
+
+                # Delivery-level dedupe (replay guard)
+                delivery_id = DeliveryDeduplicator.make_delivery_id(fp, sup_key)
+                if self.delivery_dedup.is_duplicate(delivery_id):
+                    continue
+                self.delivery_dedup.record(delivery_id)
 
                 # Build structured payload
                 payload = build_alert_payload(
