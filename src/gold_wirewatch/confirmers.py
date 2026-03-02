@@ -91,11 +91,10 @@ class ConfirmerSnapshot:
         return (max(timestamps) - min(timestamps)).total_seconds()
 
     def has_synchronized_fresh(self, min_fresh: int = 3, max_skew_seconds: int = 120) -> bool:
-        if self.fresh_count < min_fresh:
+        fresh_ts = self.fresh_timestamps()
+        if len(fresh_ts) < min_fresh:
             return False
-        spread = self.fresh_time_spread_seconds()
-        if spread is None:
-            return False
+        spread = (max(fresh_ts) - min(fresh_ts)).total_seconds()
         return spread <= max_skew_seconds
 
 
