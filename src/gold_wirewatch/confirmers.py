@@ -145,13 +145,18 @@ class FallbackProvider(ConfirmerProvider):
         self.name = name
 
     def fetch(self) -> ConfirmerReading:
+        stale_candidate: ConfirmerReading | None = None
         for p in self.providers:
             try:
                 reading = p.fetch()
-                if reading.status != ConfirmerStatus.UNAVAILABLE:
+                if reading.status == ConfirmerStatus.FRESH:
                     return reading
+                if reading.status == ConfirmerStatus.STALE and stale_candidate is None:
+                    stale_candidate = reading
             except Exception:
                 continue
+        if stale_candidate is not None:
+            return stale_candidate
         return ConfirmerReading(
             name=self.name,
             status=ConfirmerStatus.UNAVAILABLE,
