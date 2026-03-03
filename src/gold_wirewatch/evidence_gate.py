@@ -10,6 +10,11 @@ State machine thresholds (deterministic, no LLM):
 
 Confidence cap: when fresh confirmers < MIN_FRESH_CONFIRMERS, confidence is capped
 at CONFIDENCE_CAP_INSUFFICIENT and state forced to headline_only_insufficient_tape.
+
+Per-confirmer freshness: the fresh_count on ConfirmerSnapshot includes readings
+classified as delayed-acceptable (e.g., US10Y within its extended window). This
+prevents false "insufficient tape" gating when only delayed-acceptable confirmers
+are beyond the strict 5-minute window but within their configured tolerance.
 """
 from __future__ import annotations
 

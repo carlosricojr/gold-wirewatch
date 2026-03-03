@@ -294,8 +294,8 @@ def create_webhook_app(service: WireWatchService) -> FastAPI:
         return {"status": "ok"}
 
     @app.get("/metrics")
-    def metrics() -> dict[str, float | int]:
-        """Return service metrics including suppression and duplicate rates."""
+    def metrics() -> dict[str, object]:
+        """Return service metrics including suppression, duplicate rates, and confirmer health."""
         total_suppressed = (
             service.metrics.suppressed_delta
             + service.metrics.suppressed_content
@@ -312,6 +312,7 @@ def create_webhook_app(service: WireWatchService) -> FastAPI:
             "insufficient_tape_snapshots": service.metrics.insufficient_tape_snapshots,
             "critical_bypass_fired": service.metrics.critical_bypass_fired,
             "duplicate_suppression_rate": round(duplicate_rate, 4),
+            "confirmer_health": service.confirmer_engine.health_report(),
         }
 
     @app.post("/webhook/market-move")

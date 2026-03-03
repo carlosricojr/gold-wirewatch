@@ -24,7 +24,7 @@ Feed Items → Score → Critical Bypass Check → Score Gate → Evidence Gate 
 | Constant | Default | Description |
 |---|---|---|
 | `MIN_FRESH_CONFIRMERS` | 3 | Minimum fresh confirmers for Actionable/Conditional |
-| `MAX_FRESH_SKEW_SECONDS` | 120 | Max time spread among fresh confirmers |
+| `MAX_FRESH_SKEW_SECONDS` | 120 | Max time spread among strict-fresh confirmers |
 | `CONFIDENCE_CAP_INSUFFICIENT` | 0.40 | Confidence cap when fresh < MIN_FRESH |
 | `ACTIONABLE_SEVERITY_THRESHOLD` | 0.75 | Severity floor for Actionable Long |
 | `ACTIONABLE_RELEVANCE_THRESHOLD` | 0.55 | Relevance floor for Actionable Long |
@@ -32,6 +32,41 @@ Feed Items → Score → Critical Bypass Check → Score Gate → Evidence Gate 
 | `CONDITIONAL_RELEVANCE_THRESHOLD` | 0.45 | Relevance floor for Conditional |
 | `GEO_POLICY_SEVERITY_THRESHOLD` | 0.30 | Severity floor for geo/policy Conditional |
 | `NEUTRAL_SEVERITY_CEILING` | 0.20 | Below this → Neutral (no alert) |
+
+### Per-Confirmer Freshness Policy (`confirmers.py`)
+
+Each confirmer has its own `FreshnessPolicy` controlling how staleness is evaluated:
+
+| Confirmer | `max_age_seconds` | `delayed_acceptable` | `delayed_max_age_seconds` | Notes |
+|---|---|---|---|---|
+| DXY | 300 | No | — | Strict real-time |
+| US10Y | 300 | **Yes** | **900** | FRED/delayed sources tolerated up to 15min |
+| OIL | 300 | No | — | Strict (NYMEX CL/RB) |
+| USDJPY | 300 | No | — | Strict FX |
+| EQUITIES | 300 | No | — | Strict (ES/SPY) |
+
+**How it works:**
+- A reading within `max_age_seconds` → classified as **FRESH** (`within_strict_window`)
+- A reading between `max_age_seconds` and `delayed_max_age_seconds` (when `delayed_acceptable=True`) → classified as **FRESH** (`delayed_acceptable`)
+- A delayed-acceptable reading counts toward `fresh_count` for evidence gating
+- Synchronization check uses relaxed skew (5× `MAX_FRESH_SKEW_SECONDS`) when delayed readings are included
+
+**Customizing:** Edit `DEFAULT_FRESHNESS_POLICIES` in `confirmers.py` to change thresholds.
+
+### SCID Local Source Routing
+
+When Sierra Chart is running locally, SCID files can be used as primary data sources (lowest latency). Configure via `ScidConfig`:
+
+```python
+scid = ScidConfig(
+    dxy="C:/SierraChart/Data/DX-Y.NYB.scid",
+    us10y="C:/SierraChart/Data/ZN.scid",
+    oil="C:/SierraChart/Data/CL.scid",
+)
+engine = ConfirmerEngine.with_live_providers(scid=scid)
+```
+
+SCID providers are tried first; Yahoo/Stooq/FRED remain as fallback chain. Source routing is recorded in each reading's `source_label` and `freshness_reason`.
 
 ### Cooldowns (`service.py`)
 
@@ -110,11 +145,24 @@ An event within cooldown is only re-emitted if a **material delta** is detected:
   "suppressed_delivery": 3,
   "insufficient_tape_snapshots": 30,
   "critical_bypass_fired": 1,
-  "duplicate_suppression_rate": 0.8214
+  "duplicate_suppression_rate": 0.8214,
+  "confirmer_health": {
+    "DXY": {"fetches": 42, "fresh": 40, "stale": 1, "unavailable": 1, "delayed_acceptable": 0, "availability_pct": 97.6, "last_status": "fresh", "last_source": "yahoo:DX-Y.NYB", "last_reason": "within_strict_window"},
+    "US10Y": {"fetches": 42, "fresh": 38, "stale": 2, "unavailable": 2, "delayed_acceptable": 12, "availability_pct": 95.2, "last_status": "fresh", "last_source": "fred:DFII10", "last_reason": "delayed_acceptable"},
+    "OIL": {"fetches": 42, "fresh": 41, "stale": 0, "unavailable": 1, "delayed_acceptable": 0, "availability_pct": 97.6, "last_status": "fresh", "last_source": "yahoo:CL=F", "last_reason": "within_strict_window"},
+    "USDJPY": {"fetches": 42, "fresh": 42, "stale": 0, "unavailable": 0, "delayed_acceptable": 0, "availability_pct": 100.0, "last_status": "fresh", "last_source": "yahoo:JPY=X", "last_reason": "within_strict_window"},
+    "EQUITIES": {"fetches": 42, "fresh": 39, "stale": 2, "unavailable": 1, "delayed_acceptable": 0, "availability_pct": 97.6, "last_status": "fresh", "last_source": "yahoo:ES=F", "last_reason": "within_strict_window"}
+  }
 }
 ```
 
 **Key ratio**: `duplicate_suppression_rate` = total_suppressed / total_events. High (>0.8) is normal during active geo events. If `insufficient_tape_snapshots` is consistently high, confirmer providers may be down.
+
+**Per-confirmer health**: Check `confirmer_health` for per-feed diagnostics. Key signals:
+- `delayed_acceptable > 0` on US10Y is normal (FRED data is daily, often 6+ hours old)
+- `unavailable` consistently high on any feed → check that provider endpoint is reachable
+- `availability_pct < 80%` → investigate network or upstream issues
+- `last_reason` shows exactly why the last reading was classified as it was
 
 ---
 
@@ -123,7 +171,10 @@ An event within cooldown is only re-emitted if a **material delta** is detected:
 - [ ] Run full test suite: `uv run python -m pytest tests/ --no-cov`
 - [ ] Verify critical bypass patterns don't over-fire on benign headlines
 - [ ] Monitor `critical_bypass_fired` metric after deploy — should be rare (< 1/day normally)
-- [ ] Monitor `insufficient_tape_snapshots` — if >> batches, check confirmer providers
+- [ ] Monitor `insufficient_tape_snapshots` — should decrease significantly with per-confirmer freshness
+- [ ] Check `confirmer_health.US10Y.delayed_acceptable` — should show non-zero during market hours
 - [ ] Review `duplicate_suppression_rate` — should be 0.5-0.9 during active events
 - [ ] Confirm existing thresholds.yaml still loads correctly
+- [ ] Verify backward compatibility: no config changes needed for existing deployments
+- [ ] If using SCID local sources, configure `ScidConfig` paths and verify `last_source` shows `scid:*`
 - [ ] Restart service: `Get-ScheduledTaskInfo -TaskName "Gold WireWatch"`
