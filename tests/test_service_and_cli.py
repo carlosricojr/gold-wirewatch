@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 from fastapi.testclient import TestClient
 from typer.testing import CliRunner
 
-from gold_wirewatch.cli import app, build_service
+from gold_wirewatch.cli import app, build_service, _discover_scid_config
 from gold_wirewatch.config import FeedConfig, Settings
 from gold_wirewatch.models import FeedItem
 from gold_wirewatch.service import WireWatchService, create_webhook_app
@@ -211,3 +211,21 @@ def test_build_service_uses_live_confirmers_engine(tmp_path, monkeypatch) -> Non
 
     svc = build_service()
     assert svc.confirmer_engine is sentinel
+
+
+def test_discover_scid_config_prefers_newest_contract(tmp_path, monkeypatch) -> None:
+    old = tmp_path / "CLH26-NYMEX.scid"
+    new = tmp_path / "CLJ26-NYMEX.scid"
+    import os
+    import time
+
+    old.write_bytes(b"x")
+    new.write_bytes(b"y")
+    now = time.time()
+    os.utime(old, (now - 10, now - 10))
+    os.utime(new, (now, now))
+
+    monkeypatch.setenv("SIERRA_CHART_DATA_DIR", str(tmp_path))
+    scid = _discover_scid_config()
+    assert scid.oil is not None
+    assert scid.oil.endswith("CLJ26-NYMEX.scid")

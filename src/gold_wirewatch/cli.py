@@ -16,11 +16,16 @@ app = typer.Typer(help="Gold wirewatch CLI")
 
 
 def _first_existing(root: Path, patterns: list[str]) -> str | None:
+    candidates: list[Path] = []
     for pattern in patterns:
         for p in root.glob(pattern):
             if p.is_file():
-                return str(p)
-    return None
+                candidates.append(p)
+    if not candidates:
+        return None
+    # Prefer most recently-updated contract/file (helps with futures rolls).
+    newest = max(candidates, key=lambda p: p.stat().st_mtime)
+    return str(newest)
 
 
 def _discover_scid_config() -> ScidConfig:

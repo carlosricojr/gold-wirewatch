@@ -506,9 +506,18 @@ class ScidLocalProvider(ConfirmerProvider):
                 f.seek(size - self.RECORD_SIZE)
                 record = f.read(self.RECORD_SIZE)
             # Parse: DateTime as u64 (SCDateTime is actually f64 days since epoch)
-            dt_raw = struct.unpack_from("<d", record, 0)[0]
-            close = struct.unpack_from("<f", record, 16)[0]
-            ts = self.SC_EPOCH + timedelta(days=dt_raw)
+            dt_raw_us = struct.unpack_from("<q", record, 0)[0]
+            # SCID field layout after DateTime(i64): Open(8), High(12), Low(16), Close(20)
+            close = struct.unpack_from("<f", record, 20)[0]
+            ts = self.SC_EPOCH + timedelta(microseconds=dt_raw_us)
+            # Guard against invalid SCID datetime payloads.
+            if dt_raw_us <= 0 or ts.year < 2000:
+                return ConfirmerReading(
+                    name=self.name,
+                    status=ConfirmerStatus.UNAVAILABLE,
+                    source_label=self.source_label,
+                    freshness_reason="scid_invalid_timestamp",
+                )
             return self._classify(self.name, float(close), ts, self.source_label, self.freshness_policy)
         except Exception as exc:
             logger.debug("ScidLocalProvider(%s) failed: %s", self.scid_path, exc)

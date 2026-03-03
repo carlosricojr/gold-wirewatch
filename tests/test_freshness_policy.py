@@ -23,6 +23,7 @@ from gold_wirewatch.confirmers import (
     DEFAULT_FRESHNESS_POLICIES,
     FreshnessPolicy,
     ScidConfig,
+    ScidLocalProvider,
     StaticProvider,
     StubProvider,
     classify_freshness,
@@ -333,3 +334,23 @@ class TestScidConfig:
         s = ScidConfig()
         assert s.dxy is None
         assert s.us10y is None
+        assert s.oil is None
+        assert s.usdjpy is None
+        assert s.equities is None
+
+
+def test_scid_provider_invalid_timestamp_returns_unavailable(tmp_path):
+    import struct
+
+    scid = tmp_path / "bad.scid"
+    header = b"\x00" * 56
+    record = bytearray(40)
+    # Invalid/zero SCDateTime payload
+    struct.pack_into("<d", record, 0, 0.0)
+    struct.pack_into("<f", record, 20, 123.45)
+    scid.write_bytes(header + bytes(record))
+
+    p = ScidLocalProvider(ConfirmerName.OIL, str(scid), "scid:test")
+    r = p.fetch()
+    assert r.status == ConfirmerStatus.UNAVAILABLE
+    assert r.freshness_reason == "scid_invalid_timestamp"
