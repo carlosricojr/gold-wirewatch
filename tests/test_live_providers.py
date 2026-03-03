@@ -89,10 +89,18 @@ class TestYahooFinanceProviderParser:
         assert reading.source_label == "yahoo:DX-Y.NYB"
 
     def test_parse_stale_response(self):
-        p = YahooFinanceProvider(ConfirmerName.US10Y, "^TNX")
+        # Use OIL (strict policy, no delayed-acceptable) to test stale classification
+        p = YahooFinanceProvider(ConfirmerName.OIL, "CL=F")
         reading = p.parse_response(YAHOO_CHART_RESPONSE_STALE)
         assert reading.status == ConfirmerStatus.STALE
         assert reading.value == pytest.approx(4.25)
+
+    def test_parse_us10y_delayed_acceptable(self):
+        """US10Y with delayed-acceptable policy should be FRESH within extended window."""
+        p = YahooFinanceProvider(ConfirmerName.US10Y, "^TNX")
+        reading = p.parse_response(YAHOO_CHART_RESPONSE_STALE)
+        assert reading.status == ConfirmerStatus.FRESH
+        assert reading.freshness_reason == "delayed_acceptable"
 
     def test_parse_malformed_no_result_raises(self):
         p = YahooFinanceProvider(ConfirmerName.OIL, "CL=F")

@@ -15,6 +15,7 @@ from .alert_payload import build_alert_payload, build_market_move_payload
 from .alerts import format_market_move_alert, format_news_alert
 from .config import FeedConfig, Settings, load_thresholds
 from .confirmers import ConfirmerEngine
+from .critical_bypass import check_critical_bypass
 from .evidence_gate import DecisionState, apply_evidence_gate, decide_from_scores
 from .dedupe import ContentDeduplicator, DeliveryDeduplicator, canonicalize_title, event_fingerprint
 from .feeds import poll_feed, stable_item_key
@@ -28,6 +29,8 @@ from .suppression import SuppressionState, suppression_key
 
 
 class MarketWebhookPayload(BaseModel):
+    """Pydantic model for incoming market-move webhook requests."""
+
     symbol: str = "GC1!"
     previous: float | None = None
     current: float | None = None
@@ -50,15 +53,20 @@ POLICY_WATCH_COOLDOWN_SECONDS = 900
 
 @dataclass
 class ServiceMetrics:
+    """Counters tracking service activity and suppression statistics."""
+
     batches: int = 0
     alerts_sent: int = 0
     suppressed_delta: int = 0
     suppressed_content: int = 0
     suppressed_delivery: int = 0
     insufficient_tape_snapshots: int = 0
+    critical_bypass_fired: int = 0
 
 
 class WireWatchService:
+    """Core polling service that fetches feeds, scores items, and dispatches alerts."""
+
     def __init__(
         self,
         settings: Settings,
@@ -92,6 +100,7 @@ class WireWatchService:
             pass
 
     def process_items(self, items: list[FeedItem]) -> int:
+        """Score, gate, deduplicate, and alert on a batch of feed items. Returns alert count."""
         fired = 0
         self.metrics.batches += 1
         # Fetch confirmers once per batch for efficiency
@@ -119,8 +128,15 @@ class WireWatchService:
             if policy_gate and self.storage.has_recent_event("policy_watch", POLICY_WATCH_COOLDOWN_SECONDS):
                 should_fire = False
 
+            # --- Critical-event bypass check (independent of score gates) ---
+            critical = check_critical_bypass(item.title, item.summary)
+            if critical.is_critical and not should_fire:
+                should_fire = True
+
             if should_fire:
-                if meets_main_gate:
+                if critical.is_critical:
+                    trigger_path = "critical_bypass"
+                elif meets_main_gate:
                     trigger_path = "main_gate"
                 elif geo_gate:
                     trigger_path = "geo_watch"
@@ -133,7 +149,10 @@ class WireWatchService:
                     score.relevance_score, score.severity_score,
                     geo_hit=geo_gate, policy_hit=policy_gate,
                 )
-                verdict = apply_evidence_gate(source_meta, confirmers, raw_decision)
+                verdict = apply_evidence_gate(
+                    source_meta, confirmers, raw_decision,
+                    is_critical_bypass=critical.is_critical,
+                )
 
                 # Delta-only suppression
                 sup_key = suppression_key(source_meta, confirmers, verdict)
@@ -179,7 +198,9 @@ class WireWatchService:
                     context=context,
                 )
                 self.metrics.alerts_sent += 1
-                if trigger_path in {"geo_watch", "policy_watch"}:
+                if trigger_path == "critical_bypass":
+                    self.metrics.critical_bypass_fired += 1
+                if trigger_path in {"geo_watch", "policy_watch", "critical_bypass"}:
                     self.storage.save_event(
                         trigger_path,
                         json.dumps({"source": item.source, "title": item.title, "url": item.url}),
@@ -188,6 +209,7 @@ class WireWatchService:
         return fired
 
     def poll_once(self) -> int:
+        """Run one polling cycle across all feeds. Returns total alerts fired."""
         if not self.enabled:
             return 0
         self._reload_runtime_config()
@@ -202,6 +224,7 @@ class WireWatchService:
         return fired
 
     def run_forever(self) -> None:
+        """Poll feeds in an infinite loop with adaptive sleep intervals."""
         while True:
             self.poll_once()
             interval = current_poll_interval(
@@ -221,6 +244,7 @@ class WireWatchService:
         current: float | None,
         window: int,
     ) -> bool:
+        """Process a market-move webhook event. Returns True if an alert was sent."""
         if symbol != self.settings.market_move_symbol:
             return False
         if previous is None or current is None:
@@ -261,14 +285,17 @@ class WireWatchService:
 
 
 def create_webhook_app(service: WireWatchService) -> FastAPI:
+    """Create the FastAPI webhook application with health, metrics, and market-move endpoints."""
     app = FastAPI(title="gold-wirewatch-webhook")
 
     @app.get("/health")
     def health() -> dict[str, str]:
+        """Return basic health check response."""
         return {"status": "ok"}
 
     @app.get("/metrics")
-    def metrics() -> dict[str, float | int]:
+    def metrics() -> dict[str, object]:
+        """Return service metrics including suppression, duplicate rates, and confirmer health."""
         total_suppressed = (
             service.metrics.suppressed_delta
             + service.metrics.suppressed_content
@@ -283,11 +310,14 @@ def create_webhook_app(service: WireWatchService) -> FastAPI:
             "suppressed_content": service.metrics.suppressed_content,
             "suppressed_delivery": service.metrics.suppressed_delivery,
             "insufficient_tape_snapshots": service.metrics.insufficient_tape_snapshots,
+            "critical_bypass_fired": service.metrics.critical_bypass_fired,
             "duplicate_suppression_rate": round(duplicate_rate, 4),
+            "confirmer_health": service.confirmer_engine.health_report(),
         }
 
     @app.post("/webhook/market-move")
     def market_move(payload: MarketWebhookPayload) -> dict[str, object]:
+        """Handle incoming market-move webhook POST."""
         try:
             triggered = service.handle_market_move(
                 symbol=payload.symbol,
@@ -303,6 +333,7 @@ def create_webhook_app(service: WireWatchService) -> FastAPI:
 
 
 def start_service_with_webhook(service: WireWatchService) -> None:
+    """Start the polling service in a background thread and serve the webhook API."""
     import uvicorn
 
     thread = threading.Thread(target=service.run_forever, daemon=True)

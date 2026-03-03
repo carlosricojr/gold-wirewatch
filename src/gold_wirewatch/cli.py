@@ -1,15 +1,45 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from pathlib import Path
+import os
 
 import typer
 
 from .config import load_feeds, load_settings, load_thresholds
+from .confirmers import ConfirmerEngine, ScidConfig
 from .scoring import load_keywords
 from .service import WireWatchService, start_service_with_webhook
 from .storage import Storage
 
 app = typer.Typer(help="Gold wirewatch CLI")
+
+
+def _first_existing(root: Path, patterns: list[str]) -> str | None:
+    candidates: list[Path] = []
+    for pattern in patterns:
+        for p in root.glob(pattern):
+            if p.is_file():
+                candidates.append(p)
+    if not candidates:
+        return None
+    # Prefer most recently-updated contract/file (helps with futures rolls).
+    newest = max(candidates, key=lambda p: p.stat().st_mtime)
+    return str(newest)
+
+
+def _discover_scid_config() -> ScidConfig:
+    data_dir = Path(os.getenv("SIERRA_CHART_DATA_DIR", "C:/SierraChart/Data"))
+    if not data_dir.exists():
+        return ScidConfig()
+
+    return ScidConfig(
+        dxy=_first_existing(data_dir, ["USDX.scid", "DX*.scid"]),
+        us10y=_first_existing(data_dir, ["10Y*.scid", "TNX*.scid"]),
+        oil=_first_existing(data_dir, ["CL*.scid"]),
+        usdjpy=_first_existing(data_dir, ["USDJPY*.scid", "*USDJPY*.scid"]),
+        equities=_first_existing(data_dir, ["NQ*.scid", "ES*.scid", "SP*.scid"]),
+    )
 
 
 def build_service() -> WireWatchService:
@@ -23,7 +53,9 @@ def build_service() -> WireWatchService:
     feeds = load_feeds(settings.feeds_path)
     keywords = load_keywords(settings.keywords_path)
     storage = Storage(settings.db_path)
-    return WireWatchService(settings, feeds, storage, keywords)
+    scid = _discover_scid_config()
+    confirmer_engine = ConfirmerEngine.with_live_providers(scid=scid)
+    return WireWatchService(settings, feeds, storage, keywords, confirmer_engine=confirmer_engine)
 
 
 @app.command("run")
@@ -42,10 +74,16 @@ def poll_once() -> None:
 @app.command("status")
 def status() -> None:
     settings = load_settings()
+    scid = _discover_scid_config()
     typer.echo(f"timezone={settings.timezone}")
     typer.echo(f"now_utc={datetime.now(UTC).isoformat()}")
     typer.echo(f"db_path={settings.db_path}")
     typer.echo(f"feeds_path={settings.feeds_path}")
+    typer.echo(f"scid_dxy={scid.dxy}")
+    typer.echo(f"scid_us10y={scid.us10y}")
+    typer.echo(f"scid_oil={scid.oil}")
+    typer.echo(f"scid_usdjpy={scid.usdjpy}")
+    typer.echo(f"scid_equities={scid.equities}")
 
 
 if __name__ == "__main__":
