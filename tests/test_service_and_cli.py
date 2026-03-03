@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 from fastapi.testclient import TestClient
 from typer.testing import CliRunner
 
-from gold_wirewatch.cli import app
+from gold_wirewatch.cli import app, build_service
 from gold_wirewatch.config import FeedConfig, Settings
 from gold_wirewatch.models import FeedItem
 from gold_wirewatch.service import WireWatchService, create_webhook_app
@@ -176,3 +176,38 @@ def test_metrics_endpoint_exposes_hardening_counters(tmp_path) -> None:
     body = res.json()
     assert body["alerts_sent"] == 0
     assert "duplicate_suppression_rate" in body
+
+
+def test_build_service_uses_live_confirmers_engine(tmp_path, monkeypatch) -> None:
+    settings = Settings(
+        openclaw_token="tok",
+        db_path=str(tmp_path / "svc.db"),
+        feeds_path=str(tmp_path / "feeds.yaml"),
+        keywords_path=str(tmp_path / "keywords.yaml"),
+        thresholds_path=str(tmp_path / "thresholds.yaml"),
+    )
+
+    monkeypatch.setattr("gold_wirewatch.cli.load_settings", lambda: settings)
+    monkeypatch.setattr("gold_wirewatch.cli.load_feeds", lambda _p: [])
+    monkeypatch.setattr("gold_wirewatch.cli.load_keywords", lambda _p: KEYWORDS)
+
+    class T:
+        relevance_threshold = 0.45
+        severity_threshold = 0.45
+        market_move_delta_usd = 5.0
+        market_move_window_seconds = 60
+
+    monkeypatch.setattr("gold_wirewatch.cli.load_thresholds", lambda _p: T())
+
+    sentinel = object()
+
+    class DummyEngineFactory:
+        @staticmethod
+        def with_live_providers(scid=None):
+            _ = scid
+            return sentinel
+
+    monkeypatch.setattr("gold_wirewatch.cli.ConfirmerEngine", DummyEngineFactory)
+
+    svc = build_service()
+    assert svc.confirmer_engine is sentinel
