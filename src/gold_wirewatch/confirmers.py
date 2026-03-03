@@ -564,7 +564,7 @@ def make_dxy_provider(scid_path: str | None = None) -> ConfirmerProvider:
     """DXY via SCID local (if configured), Yahoo primary, Stooq and UUP fallback."""
     providers: list[ConfirmerProvider] = []
     if scid_path:
-        providers.append(ScidLocalProvider(ConfirmerName.DXY, scid_path, "scid:DXY"))
+        providers.append(ScidLocalProvider(ConfirmerName.DXY, scid_path, "scid:USDX"))
     providers.extend([
         YahooFinanceProvider(ConfirmerName.DXY, "DX-Y.NYB", "yahoo:DX-Y.NYB"),
         StooqProvider(ConfirmerName.DXY, "dx.f", "stooq:dx.f"),
