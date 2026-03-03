@@ -15,6 +15,7 @@ from .alert_payload import build_alert_payload, build_market_move_payload
 from .alerts import format_market_move_alert, format_news_alert
 from .config import FeedConfig, Settings, load_thresholds
 from .confirmers import ConfirmerEngine
+from .critical_bypass import check_critical_bypass
 from .evidence_gate import DecisionState, apply_evidence_gate, decide_from_scores
 from .dedupe import ContentDeduplicator, DeliveryDeduplicator, canonicalize_title, event_fingerprint
 from .feeds import poll_feed, stable_item_key
@@ -60,6 +61,7 @@ class ServiceMetrics:
     suppressed_content: int = 0
     suppressed_delivery: int = 0
     insufficient_tape_snapshots: int = 0
+    critical_bypass_fired: int = 0
 
 
 class WireWatchService:
@@ -126,8 +128,15 @@ class WireWatchService:
             if policy_gate and self.storage.has_recent_event("policy_watch", POLICY_WATCH_COOLDOWN_SECONDS):
                 should_fire = False
 
+            # --- Critical-event bypass check (independent of score gates) ---
+            critical = check_critical_bypass(item.title, item.summary)
+            if critical.is_critical and not should_fire:
+                should_fire = True
+
             if should_fire:
-                if meets_main_gate:
+                if critical.is_critical:
+                    trigger_path = "critical_bypass"
+                elif meets_main_gate:
                     trigger_path = "main_gate"
                 elif geo_gate:
                     trigger_path = "geo_watch"
@@ -140,7 +149,10 @@ class WireWatchService:
                     score.relevance_score, score.severity_score,
                     geo_hit=geo_gate, policy_hit=policy_gate,
                 )
-                verdict = apply_evidence_gate(source_meta, confirmers, raw_decision)
+                verdict = apply_evidence_gate(
+                    source_meta, confirmers, raw_decision,
+                    is_critical_bypass=critical.is_critical,
+                )
 
                 # Delta-only suppression
                 sup_key = suppression_key(source_meta, confirmers, verdict)
@@ -186,7 +198,9 @@ class WireWatchService:
                     context=context,
                 )
                 self.metrics.alerts_sent += 1
-                if trigger_path in {"geo_watch", "policy_watch"}:
+                if trigger_path == "critical_bypass":
+                    self.metrics.critical_bypass_fired += 1
+                if trigger_path in {"geo_watch", "policy_watch", "critical_bypass"}:
                     self.storage.save_event(
                         trigger_path,
                         json.dumps({"source": item.source, "title": item.title, "url": item.url}),
@@ -296,6 +310,7 @@ def create_webhook_app(service: WireWatchService) -> FastAPI:
             "suppressed_content": service.metrics.suppressed_content,
             "suppressed_delivery": service.metrics.suppressed_delivery,
             "insufficient_tape_snapshots": service.metrics.insufficient_tape_snapshots,
+            "critical_bypass_fired": service.metrics.critical_bypass_fired,
             "duplicate_suppression_rate": round(duplicate_rate, 4),
         }
 

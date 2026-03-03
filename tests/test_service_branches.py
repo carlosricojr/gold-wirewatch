@@ -344,8 +344,9 @@ class TestEndToEndHeadlineToPayload:
         d = payload.to_dict()
         expected_keys = {"headline", "source_name", "source_tier", "corroboration",
                          "source_count", "decision", "gated", "reason_line", "confirmer_line",
-                         "invalidator", "relevance", "severity", "trigger_path", "url", "timestamp"}
-        assert set(d.keys()) == expected_keys
+                         "invalidator", "relevance", "severity", "trigger_path", "url", "timestamp",
+                         "confidence_capped", "is_critical_bypass"}
+        assert expected_keys.issubset(set(d.keys()))
 
 
 # ---------------------------------------------------------------------------

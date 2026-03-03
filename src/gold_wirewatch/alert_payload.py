@@ -41,9 +41,12 @@ class AlertPayload:
     trigger_path: str
     url: str
     timestamp: str
+    confidence_capped: bool = False
+    confidence_cap: float | None = None
+    is_critical_bypass: bool = False
 
     def to_dict(self) -> dict[str, object]:
-        return {
+        d: dict[str, object] = {
             "headline": self.headline,
             "source_name": self.source_name,
             "source_tier": self.source_tier,
@@ -59,14 +62,21 @@ class AlertPayload:
             "trigger_path": self.trigger_path,
             "url": self.url,
             "timestamp": self.timestamp,
+            "confidence_capped": self.confidence_capped,
+            "is_critical_bypass": self.is_critical_bypass,
         }
+        if self.confidence_cap is not None:
+            d["confidence_cap"] = self.confidence_cap
+        return d
 
     def format_compact(self) -> str:
         """Human-readable compact format for alert delivery."""
+        bypass_tag = "🚨 CRITICAL " if self.is_critical_bypass else ""
+        cap_tag = f"  ⚠️ CONF_CAP={self.confidence_cap}" if self.confidence_capped else ""
         lines = [
-            f"📰 {self.headline}",
+            f"📰 {bypass_tag}{self.headline}",
             f"🏷️ Source: {self.source_name} (Tier {self.source_tier}, {self.corroboration})",
-            f"🎯 Decision: {self.decision}{'  ⚠️ GATED' if self.gated else ''}",
+            f"🎯 Decision: {self.decision}{'  ⚠️ GATED' if self.gated else ''}{cap_tag}",
             f"📊 Why: {self.reason_line}",
             f"🔬 Confirmers: {self.confirmer_line}",
             f"❌ Invalidator: {self.invalidator}",
@@ -113,6 +123,9 @@ def build_alert_payload(
         trigger_path=trigger_path,
         url=item.url,
         timestamp=ts,
+        confidence_capped=verdict.confidence_capped,
+        confidence_cap=verdict.confidence_cap,
+        is_critical_bypass=(trigger_path == "critical_bypass"),
     )
 
 

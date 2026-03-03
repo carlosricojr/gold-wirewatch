@@ -129,8 +129,8 @@ def test_geo_watch_cooldown_blocks_repeated_geo_alerts(tmp_path) -> None:
     )
     item2 = FeedItem(
         source="geo",
-        title="Iran warns over Hormuz as oil shipping risk rises",
-        summary="Further escalation",
+        title="Iran sanctions pressure oil markets and Middle East trade",
+        summary="Further escalation on sanctions and oil",
         url="u2",
         guid="geo-22",
         published_at=None,
