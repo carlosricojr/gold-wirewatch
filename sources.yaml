@@ -30,10 +30,10 @@ feeds:
     url: https://www.scotusblog.com/feed/
     kind: rss
     enabled: true
-  - name: CNBC World (disabled-403)
+  - name: CNBC World
     url: https://www.cnbc.com/id/100727362/device/rss/rss.html
     kind: rss
-    enabled: false
+    enabled: true
 
   # Known unreliable in this environment (timeouts/404); keep disabled until replaced.
   - name: US Treasury Press (disabled-timeout)

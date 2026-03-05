@@ -45,6 +45,7 @@ class Settings(BaseSettings):
 
     retry_max_attempts: int = 3
     retry_backoff_seconds: float = 0.5
+    feed_user_agent: str = "Mozilla/5.0 (compatible; GoldWireWatch/1.0; +https://openclaw.ai)"
 
 
 @dataclass(frozen=True)

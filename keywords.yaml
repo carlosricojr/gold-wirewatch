@@ -70,6 +70,21 @@ keywords:
   - term: china
     relevance: 0.25
     severity: 0.35
+  - term: russian oil
+    relevance: 0.40
+    severity: 0.75
+  - term: buy more oil
+    relevance: 0.40
+    severity: 0.65
+  - term: strategic petroleum reserve
+    relevance: 0.45
+    severity: 0.75
+  - term: treasury buy
+    relevance: 0.45
+    severity: 0.70
+  - term: bessent
+    relevance: 0.35
+    severity: 0.55
 
   # trade-policy / legal shock risk (tariffs, court rulings)
   - term: tariff

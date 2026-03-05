@@ -53,6 +53,18 @@ POLICY_WATCH_TERMS = (
     "scotus",
     "court ruling",
     "injunction",
+    # energy-policy shock terms
+    "fuel-export control",
+    "export control",
+    "refinery mandate",
+    "emergency stockpiling",
+    "strategic petroleum reserve",
+    "spr",
+    "treasury buy",
+    "government buying oil",
+    "buy more oil",
+    "russian oil",
+    "chokepoint",
 )
 
 

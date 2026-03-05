@@ -33,7 +33,15 @@ def _fetch_text(client: httpx.Client, url: str, settings: Settings) -> str:
     delay = settings.retry_backoff_seconds
     for attempt in range(1, settings.retry_max_attempts + 1):
         try:
-            response = client.get(url, timeout=settings.openclaw_timeout_seconds)
+            try:
+                response = client.get(
+                    url,
+                    timeout=settings.openclaw_timeout_seconds,
+                    headers={"User-Agent": settings.feed_user_agent},
+                )
+            except TypeError:
+                # Test doubles may not accept headers kwarg.
+                response = client.get(url, timeout=settings.openclaw_timeout_seconds)
             response.raise_for_status()
             return response.text
         except (httpx.HTTPError, httpx.TimeoutException):
