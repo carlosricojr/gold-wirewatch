@@ -22,7 +22,7 @@ from .feeds import poll_feed, stable_item_key
 from .models import FeedItem
 from .openclaw_client import OpenClawClient
 from .scheduler import current_poll_interval
-from .scoring import KeywordMap, geo_watch_reasons, load_keywords, policy_watch_reasons, score_item
+from .scoring import KeywordMap, catalyst_watch_reasons, geo_watch_reasons, load_keywords, policy_watch_reasons, score_item
 from .source_tier import corroborate
 from .storage import Storage
 from .suppression import SuppressionState, suppression_key
@@ -49,6 +49,7 @@ def _bucket_fresh_for_dedupe(count: int) -> str:
 
 GEO_WATCH_COOLDOWN_SECONDS = 600
 POLICY_WATCH_COOLDOWN_SECONDS = 900
+CATALYST_WATCH_COOLDOWN_SECONDS = 900
 
 
 @dataclass
@@ -120,13 +121,15 @@ class WireWatchService:
             )
             geo_reasons = geo_watch_reasons(item)
             policy_reasons = policy_watch_reasons(item)
+            catalyst_reasons = catalyst_watch_reasons(item)
             geo_gate = bool(geo_reasons)
             policy_gate = bool(policy_reasons)
-            should_fire = meets_main_gate or geo_gate or policy_gate
-            if geo_gate and self.storage.has_recent_event("geo_watch", GEO_WATCH_COOLDOWN_SECONDS):
-                should_fire = False
-            if policy_gate and self.storage.has_recent_event("policy_watch", POLICY_WATCH_COOLDOWN_SECONDS):
-                should_fire = False
+            catalyst_gate = bool(catalyst_reasons)
+            # Apply cooldowns per-lane (never let watch cooldowns suppress main_gate)
+            geo_active = geo_gate and not self.storage.has_recent_event("geo_watch", GEO_WATCH_COOLDOWN_SECONDS)
+            policy_active = policy_gate and not self.storage.has_recent_event("policy_watch", POLICY_WATCH_COOLDOWN_SECONDS)
+            catalyst_active = catalyst_gate and not self.storage.has_recent_event("catalyst_watch", CATALYST_WATCH_COOLDOWN_SECONDS)
+            should_fire = meets_main_gate or geo_active or policy_active or catalyst_active
 
             # --- Critical-event bypass check (independent of score gates) ---
             critical = check_critical_bypass(item.title, item.summary)
@@ -140,6 +143,8 @@ class WireWatchService:
                     trigger_path = "main_gate"
                 elif geo_gate:
                     trigger_path = "geo_watch"
+                elif catalyst_gate:
+                    trigger_path = "catalyst_watch"
                 else:
                     trigger_path = "policy_watch"
 
@@ -148,6 +153,7 @@ class WireWatchService:
                 raw_decision = decide_from_scores(
                     score.relevance_score, score.severity_score,
                     geo_hit=geo_gate, policy_hit=policy_gate,
+                    catalyst_hit=catalyst_gate,
                 )
                 verdict = apply_evidence_gate(
                     source_meta, confirmers, raw_decision,
@@ -200,7 +206,7 @@ class WireWatchService:
                 self.metrics.alerts_sent += 1
                 if trigger_path == "critical_bypass":
                     self.metrics.critical_bypass_fired += 1
-                if trigger_path in {"geo_watch", "policy_watch", "critical_bypass"}:
+                if trigger_path in {"geo_watch", "policy_watch", "catalyst_watch", "critical_bypass"}:
                     self.storage.save_event(
                         trigger_path,
                         json.dumps({"source": item.source, "title": item.title, "url": item.url}),

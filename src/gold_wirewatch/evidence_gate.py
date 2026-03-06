@@ -154,13 +154,14 @@ def decide_from_scores(
     severity: float,
     geo_hit: bool = False,
     policy_hit: bool = False,
+    catalyst_hit: bool = False,
 ) -> DecisionState:
     """Map raw scores to a preliminary decision state before evidence gating.
 
     Deterministic state machine with explicit thresholds:
       ACTIONABLE_LONG: severity >= 0.75 AND relevance >= 0.55
       CONDITIONAL:     severity >= 0.45 AND relevance >= 0.45
-                       OR severity >= 0.30 with geo/policy hit
+                       OR severity >= 0.30 with geo/policy/catalyst hit
       NEUTRAL:         severity < 0.20
       FADE:            everything else
     """
@@ -168,7 +169,7 @@ def decide_from_scores(
         return DecisionState.ACTIONABLE_LONG
     if severity >= CONDITIONAL_SEVERITY_THRESHOLD and relevance >= CONDITIONAL_RELEVANCE_THRESHOLD:
         return DecisionState.CONDITIONAL
-    if severity >= GEO_POLICY_SEVERITY_THRESHOLD and (geo_hit or policy_hit):
+    if severity >= GEO_POLICY_SEVERITY_THRESHOLD and (geo_hit or policy_hit or catalyst_hit):
         return DecisionState.CONDITIONAL
     if severity < NEUTRAL_SEVERITY_CEILING:
         return DecisionState.NEUTRAL

@@ -108,3 +108,38 @@ keywords:
   - term: injunction
     relevance: 0.25
     severity: 0.55
+
+  # AI / hyperscaler capex fragility / semiconductor demand
+  - term: capex cut
+    relevance: 0.40
+    severity: 0.60
+  - term: capex delay
+    relevance: 0.35
+    severity: 0.55
+  - term: hyperscaler
+    relevance: 0.35
+    severity: 0.50
+  - term: data center investment
+    relevance: 0.35
+    severity: 0.50
+  - term: ai spending
+    relevance: 0.30
+    severity: 0.45
+  - term: semiconductor demand
+    relevance: 0.35
+    severity: 0.55
+  - term: chip demand
+    relevance: 0.35
+    severity: 0.55
+  - term: guidance cut
+    relevance: 0.35
+    severity: 0.55
+  - term: guidance warning
+    relevance: 0.30
+    severity: 0.50
+  - term: writedown
+    relevance: 0.30
+    severity: 0.50
+  - term: impairment
+    relevance: 0.30
+    severity: 0.50
