@@ -9,30 +9,37 @@ feeds:
   - name: BBC World
     url: https://feeds.bbci.co.uk/news/world/rss.xml
     kind: rss
+    trust_tier: B
     enabled: true
   - name: BBC Business
     url: https://feeds.bbci.co.uk/news/business/rss.xml
     kind: rss
+    trust_tier: B
     enabled: true
   - name: Al Jazeera All
     url: https://www.aljazeera.com/xml/rss/all.xml
     kind: rss
+    trust_tier: B
     enabled: true
   - name: NYTimes World
     url: https://rss.nytimes.com/services/xml/rss/nyt/World.xml
     kind: rss
+    trust_tier: B
     enabled: true
   - name: NYTimes Business
     url: https://rss.nytimes.com/services/xml/rss/nyt/Business.xml
     kind: rss
+    trust_tier: B
     enabled: true
   - name: SCOTUSblog (Court)
     url: https://www.scotusblog.com/feed/
     kind: rss
+    trust_tier: B
     enabled: true
   - name: CNBC World
     url: https://www.cnbc.com/id/100727362/device/rss/rss.html
     kind: rss
+    trust_tier: B
     enabled: true
 
   # Known unreliable in this environment (timeouts/404); keep disabled until replaced.

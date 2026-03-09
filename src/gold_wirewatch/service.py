@@ -87,6 +87,10 @@ class WireWatchService:
         self.content_dedup = ContentDeduplicator(cooldown_seconds=600.0)
         self.delivery_dedup = DeliveryDeduplicator(ttl_seconds=1800.0)
         self.metrics = ServiceMetrics()
+        # Build config-driven trust tier lookup from feed configs
+        self._config_tiers: dict[str, str] = {
+            f.name: f.trust_tier for f in feeds if f.trust_tier is not None
+        }
 
     def _reload_runtime_config(self) -> None:
         try:
@@ -149,7 +153,7 @@ class WireWatchService:
                     trigger_path = "policy_watch"
 
                 # --- Phase-1 hardening: source tier + evidence gate ---
-                source_meta = corroborate([item.source])
+                source_meta = corroborate([item.source], config_tiers=self._config_tiers)
                 raw_decision = decide_from_scores(
                     score.relevance_score, score.severity_score,
                     geo_hit=geo_gate, policy_hit=policy_gate,
@@ -160,16 +164,18 @@ class WireWatchService:
                     is_critical_bypass=critical.is_critical,
                 )
 
-                # Delta-only suppression
-                sup_key = suppression_key(source_meta, confirmers, verdict)
-                if self.suppression.should_suppress(trigger_path, sup_key):
-                    self.metrics.suppressed_delta += 1
-                    continue
-                self.suppression.record(trigger_path, sup_key)
-
-                # Content-level dedupe (near-duplicate titles)
+                # Compute event fingerprint early (needed for scoped suppression)
                 canon = canonicalize_title(item.title)
                 fp = event_fingerprint(canon)
+
+                # Delta-only suppression — scoped per event fingerprint so
+                # different headlines with the same state don't collide.
+                sup_key = suppression_key(source_meta, confirmers, verdict)
+                sup_group = f"{trigger_path}:{fp}"
+                if self.suppression.should_suppress(sup_group, sup_key):
+                    self.metrics.suppressed_delta += 1
+                    continue
+                self.suppression.record(sup_group, sup_key)
                 fresh_bucket = _bucket_fresh_for_dedupe(confirmers.fresh_count)
                 if self.content_dedup.should_suppress(
                     fp, source_meta.tier.value, verdict.decision.value, fresh_bucket,

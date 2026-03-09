@@ -54,6 +54,7 @@ class FeedConfig:
     url: str
     kind: str
     enabled: bool = True
+    trust_tier: str | None = None
 
 
 class Thresholds(BaseModel):

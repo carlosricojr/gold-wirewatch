@@ -35,12 +35,38 @@ class SourceMeta:
     source_names: tuple[str, ...]
 
 
-def classify_source(source_name: str) -> SourceTier:
-    return SourceTier.from_source_name(source_name)
+def classify_source(source_name: str, *, config_tier: str | None = None) -> SourceTier:
+    """Classify a source, preferring config-driven tier when provided.
+
+    The config tier is used unless the heuristic already assigns a *better*
+    (lower ordinal) tier — e.g. a Tier-A heuristic match is never downgraded
+    to B by config.
+    """
+    heuristic = SourceTier.from_source_name(source_name)
+    if config_tier is None:
+        return heuristic
+    try:
+        cfg = SourceTier(config_tier)
+    except ValueError:
+        return heuristic
+    # Return the better (lower ordinal) of heuristic vs config
+    tier_order = list(SourceTier)
+    return cfg if tier_order.index(cfg) < tier_order.index(heuristic) else heuristic
 
 
-def corroborate(source_names: list[str]) -> SourceMeta:
-    """Determine corroboration state from a list of source names covering the same event."""
+def corroborate(
+    source_names: list[str],
+    *,
+    config_tiers: dict[str, str] | None = None,
+) -> SourceMeta:
+    """Determine corroboration state from a list of source names covering the same event.
+
+    Args:
+        source_names: Names of sources reporting the event.
+        config_tiers: Optional mapping of source name → trust tier string
+            (e.g. from FeedConfig.trust_tier). Overrides heuristic tier
+            when it would upgrade (never downgrades).
+    """
     if not source_names:
         return SourceMeta(
             tier=SourceTier.C,
@@ -48,7 +74,8 @@ def corroborate(source_names: list[str]) -> SourceMeta:
             source_count=0,
             source_names=(),
         )
-    tiers = [classify_source(n) for n in source_names]
+    ct = config_tiers or {}
+    tiers = [classify_source(n, config_tier=ct.get(n)) for n in source_names]
     best_tier = min(tiers, key=lambda t: list(SourceTier).index(t))
     unique_sources = tuple(dict.fromkeys(source_names))  # preserve order, dedupe
 
