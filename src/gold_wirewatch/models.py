@@ -13,6 +13,7 @@ class FeedItem:
     guid: str
     published_at: datetime | None
     fetched_at: datetime
+    updated_at: datetime | None = None
 
 
 @dataclass(frozen=True)

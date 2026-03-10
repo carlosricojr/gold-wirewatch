@@ -15,7 +15,20 @@ def _bias(score: ScoreResult) -> tuple[str, str]:
 
 
 def format_news_alert(item: FeedItem, score: ScoreResult, tz_name: str) -> str:
-    ts = item.fetched_at.astimezone(ZoneInfo(tz_name)).strftime("%Y-%m-%d %H:%M:%S %Z")
+    from .alert_payload import _resolve_news_time
+
+    news_time, kind = _resolve_news_time(
+        item.published_at,
+        getattr(item, "updated_at", None),
+        item.fetched_at,
+        tz_name,
+    )
+    if kind == "published":
+        ts = f"{news_time}"
+    elif kind == "updated":
+        ts = f"{news_time} (updated)"
+    else:
+        ts = f"{news_time} (first seen)"
     bias, conf = _bias(score)
     summary = item.summary.strip() if item.summary.strip() else "(no feed summary provided)"
     why = "Rates/USD/risk/geopolitics/China signal from keyword hits: " + ", ".join(score.reasons)

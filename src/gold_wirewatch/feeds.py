@@ -65,6 +65,18 @@ def poll_feed(client: httpx.Client, feed: FeedConfig, settings: Settings) -> lis
                 or entry.get("link")
                 or entry.get("title")
             )
+            pub_raw = entry.get("published")
+            upd_raw = entry.get("updated")
+            # Only use updated as published fallback if no dedicated published field
+            published_at = _parse_dt(pub_raw) if pub_raw else None
+            updated_at = _parse_dt(upd_raw) if upd_raw else None
+            # feedparser auto-maps published↔updated; collapse duplicates
+            if published_at is not None and updated_at is not None and published_at == updated_at:
+                updated_at = None
+            # Legacy fallback: if no published but updated exists, use updated as published
+            if published_at is None and updated_at is not None and pub_raw is None:
+                published_at = updated_at
+                updated_at = None
             items.append(
                 FeedItem(
                     source=feed.name,
@@ -72,8 +84,9 @@ def poll_feed(client: httpx.Client, feed: FeedConfig, settings: Settings) -> lis
                     summary=str(entry.get("summary", "")).strip(),
                     url=str(entry.get("link", "")).strip(),
                     guid=guid.strip(),
-                    published_at=_parse_dt(entry.get("published") or entry.get("updated")),
+                    published_at=published_at,
                     fetched_at=now,
+                    updated_at=updated_at,
                 )
             )
         return items
@@ -85,6 +98,8 @@ def poll_feed(client: httpx.Client, feed: FeedConfig, settings: Settings) -> lis
         if not isinstance(row, dict):
             continue
         guid = str(row.get("id") or row.get("guid") or row.get("url") or row.get("title"))
+        pub_str = str(row.get("published_at") or row.get("published") or "")
+        upd_str = str(row.get("updated_at") or row.get("updated") or "")
         out.append(
             FeedItem(
                 source=feed.name,
@@ -92,8 +107,9 @@ def poll_feed(client: httpx.Client, feed: FeedConfig, settings: Settings) -> lis
                 summary=str(row.get("summary") or row.get("description") or "").strip(),
                 url=str(row.get("url", "")).strip(),
                 guid=guid.strip(),
-                published_at=_parse_dt(str(row.get("published_at") or row.get("published") or "")),
+                published_at=_parse_dt(pub_str),
                 fetched_at=now,
+                updated_at=_parse_dt(upd_str),
             )
         )
     return out
